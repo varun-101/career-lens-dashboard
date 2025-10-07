@@ -14,7 +14,54 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      github_validations: {
+        Row: {
+          account_age_days: number | null
+          analysis_summary: string | null
+          applicant_name: string
+          authenticity_score: number
+          copied_projects_detected: number | null
+          created_at: string
+          github_username: string
+          id: string
+          positive_indicators: Json | null
+          red_flags: Json | null
+          total_commits: number | null
+          total_repos: number | null
+          validated_at: string
+        }
+        Insert: {
+          account_age_days?: number | null
+          analysis_summary?: string | null
+          applicant_name: string
+          authenticity_score: number
+          copied_projects_detected?: number | null
+          created_at?: string
+          github_username: string
+          id?: string
+          positive_indicators?: Json | null
+          red_flags?: Json | null
+          total_commits?: number | null
+          total_repos?: number | null
+          validated_at?: string
+        }
+        Update: {
+          account_age_days?: number | null
+          analysis_summary?: string | null
+          applicant_name?: string
+          authenticity_score?: number
+          copied_projects_detected?: number | null
+          created_at?: string
+          github_username?: string
+          id?: string
+          positive_indicators?: Json | null
+          red_flags?: Json | null
+          total_commits?: number | null
+          total_repos?: number | null
+          validated_at?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never

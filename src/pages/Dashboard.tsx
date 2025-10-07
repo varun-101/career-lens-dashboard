@@ -5,6 +5,13 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -19,8 +26,9 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Download, FileText, LogOut, Search, TrendingUp, Users } from "lucide-react";
+import { Download, FileText, LogOut, Search, TrendingUp, Users, Github, Shield, AlertTriangle, CheckCircle, Loader2 } from "lucide-react";
 import { toast } from "sonner";
+import { supabase } from "@/integrations/supabase/client";
 
 interface Applicant {
   id: string;
@@ -32,6 +40,15 @@ interface Applicant {
   skills: string[];
   appliedDate: string;
   status: "excellent" | "good" | "average" | "poor";
+  githubUsername?: string;
+  githubValidation?: {
+    score: number;
+    summary: string;
+    redFlags: string[];
+    positiveIndicators: string[];
+    totalRepos: number;
+    accountAge: number;
+  };
 }
 
 const mockApplicants: Applicant[] = [
@@ -45,6 +62,7 @@ const mockApplicants: Applicant[] = [
     skills: ["React", "TypeScript", "Node.js", "AWS"],
     appliedDate: "2025-01-05",
     status: "excellent",
+    githubUsername: "sarahj-dev",
   },
   {
     id: "2",
@@ -56,6 +74,7 @@ const mockApplicants: Applicant[] = [
     skills: ["Vue.js", "JavaScript", "CSS", "UI/UX"],
     appliedDate: "2025-01-04",
     status: "excellent",
+    githubUsername: "mchen-code",
   },
   {
     id: "3",
@@ -67,6 +86,7 @@ const mockApplicants: Applicant[] = [
     skills: ["Python", "Django", "React", "PostgreSQL"],
     appliedDate: "2025-01-03",
     status: "good",
+    githubUsername: "emilyrod",
   },
   {
     id: "4",
@@ -78,6 +98,7 @@ const mockApplicants: Applicant[] = [
     skills: ["Docker", "Kubernetes", "CI/CD", "AWS"],
     appliedDate: "2025-01-02",
     status: "excellent",
+    githubUsername: "davidkim-devops",
   },
   {
     id: "5",
@@ -89,6 +110,7 @@ const mockApplicants: Applicant[] = [
     skills: ["Java", "Spring Boot", "MongoDB", "REST API"],
     appliedDate: "2025-01-01",
     status: "good",
+    githubUsername: "jtaylor-backend",
   },
   {
     id: "6",
@@ -108,6 +130,9 @@ const Dashboard = () => {
   const [applicants, setApplicants] = useState<Applicant[]>(mockApplicants);
   const [searchTerm, setSearchTerm] = useState("");
   const [filterStatus, setFilterStatus] = useState<string>("all");
+  const [selectedApplicant, setSelectedApplicant] = useState<Applicant | null>(null);
+  const [validatingGithub, setValidatingGithub] = useState<string | null>(null);
+  const [showValidationDialog, setShowValidationDialog] = useState(false);
 
   useEffect(() => {
     const isAuth = localStorage.getItem("isAuthenticated");
@@ -120,6 +145,60 @@ const Dashboard = () => {
     localStorage.removeItem("isAuthenticated");
     toast.success("Logged out successfully");
     navigate("/login");
+  };
+
+  const validateGithubProfile = async (applicant: Applicant) => {
+    if (!applicant.githubUsername) {
+      toast.error("No GitHub username provided");
+      return;
+    }
+
+    setValidatingGithub(applicant.id);
+    
+    try {
+      const { data, error } = await supabase.functions.invoke("validate-github", {
+        body: {
+          githubUsername: applicant.githubUsername,
+          applicantName: applicant.name
+        }
+      });
+
+      if (error) {
+        console.error("Validation error:", error);
+        toast.error("Failed to validate GitHub profile");
+        return;
+      }
+
+      if (data?.success && data?.validation) {
+        // Update applicant with validation data
+        const updatedApplicants = applicants.map(a => {
+          if (a.id === applicant.id) {
+            return {
+              ...a,
+              githubValidation: {
+                score: data.validation.authenticity_score,
+                summary: data.validation.analysis_summary,
+                redFlags: data.validation.red_flags,
+                positiveIndicators: data.validation.positive_indicators,
+                totalRepos: data.validation.total_repos,
+                accountAge: data.validation.account_age_days
+              }
+            };
+          }
+          return a;
+        });
+        
+        setApplicants(updatedApplicants);
+        setSelectedApplicant(updatedApplicants.find(a => a.id === applicant.id) || null);
+        setShowValidationDialog(true);
+        toast.success("GitHub profile validated successfully!");
+      }
+    } catch (error) {
+      console.error("Validation error:", error);
+      toast.error("Failed to validate GitHub profile");
+    } finally {
+      setValidatingGithub(null);
+    }
   };
 
   const getScoreBadgeVariant = (status: string) => {
@@ -287,10 +366,12 @@ const Dashboard = () => {
                     <TableHead>Name</TableHead>
                     <TableHead>Position</TableHead>
                     <TableHead>Score</TableHead>
+                    <TableHead>GitHub</TableHead>
                     <TableHead>Experience</TableHead>
                     <TableHead>Skills</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead>Applied</TableHead>
+                    <TableHead>Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -307,6 +388,25 @@ const Dashboard = () => {
                         <span className={`text-lg font-bold ${getScoreColor(applicant.score)}`}>
                           {applicant.score}%
                         </span>
+                      </TableCell>
+                      <TableCell>
+                        {applicant.githubUsername ? (
+                          <div className="flex items-center gap-2">
+                            <Github className="h-4 w-4 text-muted-foreground" />
+                            <span className="text-sm">{applicant.githubUsername}</span>
+                            {applicant.githubValidation && (
+                              <Badge 
+                                variant={applicant.githubValidation.score >= 70 ? "default" : "destructive"}
+                                className="gap-1"
+                              >
+                                <Shield className="h-3 w-3" />
+                                {applicant.githubValidation.score}%
+                              </Badge>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-sm text-muted-foreground">Not provided</span>
+                        )}
                       </TableCell>
                       <TableCell>{applicant.experience}</TableCell>
                       <TableCell>
@@ -331,6 +431,34 @@ const Dashboard = () => {
                       <TableCell className="text-muted-foreground">
                         {new Date(applicant.appliedDate).toLocaleDateString()}
                       </TableCell>
+                      <TableCell>
+                        {applicant.githubUsername && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => validateGithubProfile(applicant)}
+                            disabled={validatingGithub === applicant.id}
+                            className="gap-2"
+                          >
+                            {validatingGithub === applicant.id ? (
+                              <>
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                                Validating...
+                              </>
+                            ) : applicant.githubValidation ? (
+                              <>
+                                <Shield className="h-4 w-4" />
+                                View Details
+                              </>
+                            ) : (
+                              <>
+                                <Github className="h-4 w-4" />
+                                Validate GitHub
+                              </>
+                            )}
+                          </Button>
+                        )}
+                      </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -339,6 +467,103 @@ const Dashboard = () => {
           </CardContent>
         </Card>
       </main>
+
+      {/* GitHub Validation Dialog */}
+      <Dialog open={showValidationDialog} onOpenChange={setShowValidationDialog}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Github className="h-5 w-5" />
+              GitHub Profile Validation
+            </DialogTitle>
+            <DialogDescription>
+              AI-powered authenticity analysis for {selectedApplicant?.name}
+            </DialogDescription>
+          </DialogHeader>
+          
+          {selectedApplicant?.githubValidation && (
+            <div className="space-y-6">
+              {/* Score Overview */}
+              <div className="grid grid-cols-3 gap-4">
+                <Card className="p-4">
+                  <div className="text-sm text-muted-foreground mb-1">Authenticity Score</div>
+                  <div className={`text-3xl font-bold ${getScoreColor(selectedApplicant.githubValidation.score)}`}>
+                    {selectedApplicant.githubValidation.score}%
+                  </div>
+                </Card>
+                <Card className="p-4">
+                  <div className="text-sm text-muted-foreground mb-1">Total Repos</div>
+                  <div className="text-3xl font-bold text-foreground">
+                    {selectedApplicant.githubValidation.totalRepos}
+                  </div>
+                </Card>
+                <Card className="p-4">
+                  <div className="text-sm text-muted-foreground mb-1">Account Age</div>
+                  <div className="text-3xl font-bold text-foreground">
+                    {Math.floor(selectedApplicant.githubValidation.accountAge / 365)}y
+                  </div>
+                </Card>
+              </div>
+
+              {/* Summary */}
+              <div>
+                <h4 className="font-semibold mb-2 text-foreground">Analysis Summary</h4>
+                <p className="text-sm text-muted-foreground">
+                  {selectedApplicant.githubValidation.summary}
+                </p>
+              </div>
+
+              {/* Positive Indicators */}
+              {selectedApplicant.githubValidation.positiveIndicators.length > 0 && (
+                <div>
+                  <h4 className="font-semibold mb-2 flex items-center gap-2 text-foreground">
+                    <CheckCircle className="h-4 w-4 text-success" />
+                    Positive Indicators
+                  </h4>
+                  <ul className="space-y-2">
+                    {selectedApplicant.githubValidation.positiveIndicators.map((indicator, idx) => (
+                      <li key={idx} className="flex items-start gap-2 text-sm">
+                        <CheckCircle className="h-4 w-4 text-success mt-0.5 flex-shrink-0" />
+                        <span className="text-muted-foreground">{indicator}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {/* Red Flags */}
+              {selectedApplicant.githubValidation.redFlags.length > 0 && (
+                <div>
+                  <h4 className="font-semibold mb-2 flex items-center gap-2 text-foreground">
+                    <AlertTriangle className="h-4 w-4 text-destructive" />
+                    Red Flags
+                  </h4>
+                  <ul className="space-y-2">
+                    {selectedApplicant.githubValidation.redFlags.map((flag, idx) => (
+                      <li key={idx} className="flex items-start gap-2 text-sm">
+                        <AlertTriangle className="h-4 w-4 text-destructive mt-0.5 flex-shrink-0" />
+                        <span className="text-muted-foreground">{flag}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              <div className="flex justify-end gap-2 pt-4 border-t">
+                <Button
+                  variant="outline"
+                  onClick={() => window.open(`https://github.com/${selectedApplicant.githubUsername}`, '_blank')}
+                >
+                  View GitHub Profile
+                </Button>
+                <Button onClick={() => setShowValidationDialog(false)}>
+                  Close
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
