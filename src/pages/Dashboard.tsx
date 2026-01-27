@@ -26,21 +26,36 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Download, FileText, LogOut, Search, TrendingUp, Users, Github, Shield, AlertTriangle, CheckCircle, Loader2 } from "lucide-react";
+import { Download, FileText, LogOut, Search, TrendingUp, Users, Github, Shield, AlertTriangle, CheckCircle, Loader2, Eye } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/hooks/useAuth";
+import { AddApplicantDialog } from "@/components/AddApplicantDialog";
+
+interface ResumeAnalysis {
+  score?: number;
+  status?: string;
+  experience?: string;
+  skills?: string[];
+  summary?: string;
+  strengths?: string[];
+  weaknesses?: string[];
+  recommendations?: string[];
+}
 
 interface Applicant {
   id: string;
   name: string;
   email: string;
   position: string;
-  score: number;
-  experience: string;
+  ai_score: number | null;
+  experience: string | null;
   skills: string[];
-  appliedDate: string;
-  status: "excellent" | "good" | "average" | "poor";
-  githubUsername?: string;
+  created_at: string;
+  status: string | null;
+  github_username: string | null;
+  resume_url: string | null;
+  resume_analysis: ResumeAnalysis | null;
   githubValidation?: {
     score: number;
     summary: string;
@@ -51,104 +66,78 @@ interface Applicant {
   };
 }
 
-const mockApplicants: Applicant[] = [
-  {
-    id: "1",
-    name: "Sarah Johnson",
-    email: "sarah.j@email.com",
-    position: "Senior Software Engineer",
-    score: 92,
-    experience: "8 years",
-    skills: ["React", "TypeScript", "Node.js", "AWS"],
-    appliedDate: "2025-01-05",
-    status: "excellent",
-    githubUsername: "sarahj-dev",
-  },
-  {
-    id: "2",
-    name: "Michael Chen",
-    email: "m.chen@email.com",
-    position: "Frontend Developer",
-    score: 85,
-    experience: "5 years",
-    skills: ["Vue.js", "JavaScript", "CSS", "UI/UX"],
-    appliedDate: "2025-01-04",
-    status: "excellent",
-    githubUsername: "mchen-code",
-  },
-  {
-    id: "3",
-    name: "Emily Rodriguez",
-    email: "e.rodriguez@email.com",
-    position: "Full Stack Developer",
-    score: 78,
-    experience: "4 years",
-    skills: ["Python", "Django", "React", "PostgreSQL"],
-    appliedDate: "2025-01-03",
-    status: "good",
-    githubUsername: "emilyrod",
-  },
-  {
-    id: "4",
-    name: "David Kim",
-    email: "d.kim@email.com",
-    position: "DevOps Engineer",
-    score: 88,
-    experience: "6 years",
-    skills: ["Docker", "Kubernetes", "CI/CD", "AWS"],
-    appliedDate: "2025-01-02",
-    status: "excellent",
-    githubUsername: "davidkim-devops",
-  },
-  {
-    id: "5",
-    name: "Jessica Taylor",
-    email: "j.taylor@email.com",
-    position: "Backend Developer",
-    score: 72,
-    experience: "3 years",
-    skills: ["Java", "Spring Boot", "MongoDB", "REST API"],
-    appliedDate: "2025-01-01",
-    status: "good",
-    githubUsername: "jtaylor-backend",
-  },
-  {
-    id: "6",
-    name: "Alex Thompson",
-    email: "a.thompson@email.com",
-    position: "UI/UX Designer",
-    score: 65,
-    experience: "2 years",
-    skills: ["Figma", "Adobe XD", "Prototyping", "Design Systems"],
-    appliedDate: "2024-12-31",
-    status: "average",
-  },
-];
-
 const Dashboard = () => {
   const navigate = useNavigate();
-  const [applicants, setApplicants] = useState<Applicant[]>(mockApplicants);
+  const { user, loading, signOut } = useAuth();
+  const [applicants, setApplicants] = useState<Applicant[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [filterStatus, setFilterStatus] = useState<string>("all");
   const [selectedApplicant, setSelectedApplicant] = useState<Applicant | null>(null);
   const [validatingGithub, setValidatingGithub] = useState<string | null>(null);
   const [showValidationDialog, setShowValidationDialog] = useState(false);
+  const [showAnalysisDialog, setShowAnalysisDialog] = useState(false);
+  const [isLoadingApplicants, setIsLoadingApplicants] = useState(true);
 
   useEffect(() => {
-    const isAuth = localStorage.getItem("isAuthenticated");
-    if (!isAuth) {
-      navigate("/login");
+    if (!loading && !user) {
+      navigate("/auth");
     }
-  }, [navigate]);
+  }, [user, loading, navigate]);
 
-  const handleLogout = () => {
-    localStorage.removeItem("isAuthenticated");
+  const fetchApplicants = async () => {
+    if (!user) return;
+    
+    setIsLoadingApplicants(true);
+    try {
+      const { data, error } = await supabase
+        .from("applicants")
+        .select("*")
+        .order("created_at", { ascending: false });
+
+      if (error) {
+        console.error("Error fetching applicants:", error);
+        toast.error("Failed to load applicants");
+        return;
+      }
+
+      // Map database records to Applicant interface
+      const mappedApplicants: Applicant[] = (data || []).map(record => ({
+        id: record.id,
+        name: record.name,
+        email: record.email,
+        position: record.position,
+        ai_score: record.ai_score,
+        experience: record.experience,
+        skills: record.skills || [],
+        created_at: record.created_at,
+        status: record.status,
+        github_username: record.github_username,
+        resume_url: record.resume_url,
+        resume_analysis: record.resume_analysis as ResumeAnalysis | null,
+      }));
+
+      setApplicants(mappedApplicants);
+    } catch (error) {
+      console.error("Error:", error);
+    } finally {
+      setIsLoadingApplicants(false);
+    }
+  };
+
+  useEffect(() => {
+    if (user) {
+      fetchApplicants();
+    }
+  }, [user]);
+
+  const handleLogout = async () => {
+    await signOut();
     toast.success("Logged out successfully");
-    navigate("/login");
+    navigate("/auth");
   };
 
   const validateGithubProfile = async (applicant: Applicant) => {
-    if (!applicant.githubUsername) {
+    if (!applicant.github_username) {
       toast.error("No GitHub username provided");
       return;
     }
@@ -158,7 +147,7 @@ const Dashboard = () => {
     try {
       const { data, error } = await supabase.functions.invoke("validate-github", {
         body: {
-          githubUsername: applicant.githubUsername,
+          githubUsername: applicant.github_username,
           applicantName: applicant.name
         }
       });
@@ -201,7 +190,7 @@ const Dashboard = () => {
     }
   };
 
-  const getScoreBadgeVariant = (status: string) => {
+  const getScoreBadgeVariant = (status: string | null) => {
     switch (status) {
       case "excellent":
         return "default";
@@ -214,7 +203,8 @@ const Dashboard = () => {
     }
   };
 
-  const getScoreColor = (score: number) => {
+  const getScoreColor = (score: number | null) => {
+    if (!score) return "text-muted-foreground";
     if (score >= 85) return "text-success";
     if (score >= 70) return "text-warning";
     return "text-destructive";
@@ -235,11 +225,11 @@ const Dashboard = () => {
       a.name,
       a.email,
       a.position,
-      a.score.toString(),
-      a.experience,
-      a.skills.join("; "),
-      a.appliedDate,
-      a.status,
+      (a.ai_score || 0).toString(),
+      a.experience || "",
+      (a.skills || []).join("; "),
+      new Date(a.created_at).toLocaleDateString(),
+      a.status || "pending",
     ]);
 
     const csvContent = [headers, ...rows].map((row) => row.join(",")).join("\n");
@@ -252,9 +242,19 @@ const Dashboard = () => {
     toast.success("Data exported successfully!");
   };
 
-  const averageScore = Math.round(
-    filteredApplicants.reduce((acc, curr) => acc + curr.score, 0) / filteredApplicants.length
-  );
+  const averageScore = filteredApplicants.length > 0 
+    ? Math.round(
+        filteredApplicants.reduce((acc, curr) => acc + (curr.ai_score || 0), 0) / filteredApplicants.length
+      )
+    : 0;
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background">
@@ -328,10 +328,13 @@ const Dashboard = () => {
                 <CardTitle className="text-2xl">Applicant Analysis</CardTitle>
                 <CardDescription>AI-powered resume screening results</CardDescription>
               </div>
-              <Button onClick={exportToCSV} className="gap-2">
-                <Download className="h-4 w-4" />
-                Export to CSV
-              </Button>
+              <div className="flex gap-2">
+                <AddApplicantDialog onApplicantAdded={fetchApplicants} />
+                <Button onClick={exportToCSV} variant="outline" className="gap-2">
+                  <Download className="h-4 w-4" />
+                  Export CSV
+                </Button>
+              </div>
             </div>
 
             {/* Filters */}
@@ -354,119 +357,236 @@ const Dashboard = () => {
                   <SelectItem value="excellent">Excellent</SelectItem>
                   <SelectItem value="good">Good</SelectItem>
                   <SelectItem value="average">Average</SelectItem>
+                  <SelectItem value="pending">Pending</SelectItem>
                 </SelectContent>
               </Select>
             </div>
           </CardHeader>
           <CardContent>
-            <div className="rounded-md border border-border">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Name</TableHead>
-                    <TableHead>Position</TableHead>
-                    <TableHead>Score</TableHead>
-                    <TableHead>GitHub</TableHead>
-                    <TableHead>Experience</TableHead>
-                    <TableHead>Skills</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Applied</TableHead>
-                    <TableHead>Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filteredApplicants.map((applicant) => (
-                    <TableRow key={applicant.id} className="hover:bg-muted/50">
-                      <TableCell className="font-medium">
-                        <div>
-                          <div className="font-semibold text-foreground">{applicant.name}</div>
-                          <div className="text-sm text-muted-foreground">{applicant.email}</div>
-                        </div>
-                      </TableCell>
-                      <TableCell>{applicant.position}</TableCell>
-                      <TableCell>
-                        <span className={`text-lg font-bold ${getScoreColor(applicant.score)}`}>
-                          {applicant.score}%
-                        </span>
-                      </TableCell>
-                      <TableCell>
-                        {applicant.githubUsername ? (
-                          <div className="flex items-center gap-2">
-                            <Github className="h-4 w-4 text-muted-foreground" />
-                            <span className="text-sm">{applicant.githubUsername}</span>
-                            {applicant.githubValidation && (
-                              <Badge 
-                                variant={applicant.githubValidation.score >= 70 ? "default" : "destructive"}
-                                className="gap-1"
-                              >
-                                <Shield className="h-3 w-3" />
-                                {applicant.githubValidation.score}%
+            {isLoadingApplicants ? (
+              <div className="flex items-center justify-center py-12">
+                <Loader2 className="h-8 w-8 animate-spin text-primary" />
+              </div>
+            ) : filteredApplicants.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-12 text-center">
+                <FileText className="h-12 w-12 text-muted-foreground mb-4" />
+                <h3 className="text-lg font-semibold text-foreground">No applicants yet</h3>
+                <p className="text-muted-foreground mt-1">
+                  Upload a resume to get started with AI-powered analysis
+                </p>
+              </div>
+            ) : (
+              <div className="rounded-md border border-border">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Name</TableHead>
+                      <TableHead>Position</TableHead>
+                      <TableHead>Score</TableHead>
+                      <TableHead>GitHub</TableHead>
+                      <TableHead>Experience</TableHead>
+                      <TableHead>Skills</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Applied</TableHead>
+                      <TableHead>Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredApplicants.map((applicant) => (
+                      <TableRow key={applicant.id} className="hover:bg-muted/50">
+                        <TableCell className="font-medium">
+                          <div>
+                            <div className="font-semibold text-foreground">{applicant.name}</div>
+                            <div className="text-sm text-muted-foreground">{applicant.email}</div>
+                          </div>
+                        </TableCell>
+                        <TableCell>{applicant.position}</TableCell>
+                        <TableCell>
+                          <span className={`text-lg font-bold ${getScoreColor(applicant.ai_score)}`}>
+                            {applicant.ai_score || 0}%
+                          </span>
+                        </TableCell>
+                        <TableCell>
+                          {applicant.github_username ? (
+                            <div className="flex items-center gap-2">
+                              <Github className="h-4 w-4 text-muted-foreground" />
+                              <span className="text-sm">{applicant.github_username}</span>
+                              {applicant.githubValidation && (
+                                <Badge 
+                                  variant={applicant.githubValidation.score >= 70 ? "default" : "destructive"}
+                                  className="gap-1"
+                                >
+                                  <Shield className="h-3 w-3" />
+                                  {applicant.githubValidation.score}%
+                                </Badge>
+                              )}
+                            </div>
+                          ) : (
+                            <span className="text-sm text-muted-foreground">Not provided</span>
+                          )}
+                        </TableCell>
+                        <TableCell>{applicant.experience || applicant.resume_analysis?.experience || "N/A"}</TableCell>
+                        <TableCell>
+                          <div className="flex flex-wrap gap-1">
+                            {(applicant.skills || []).slice(0, 3).map((skill) => (
+                              <Badge key={skill} variant="secondary" className="text-xs">
+                                {skill}
+                              </Badge>
+                            ))}
+                            {(applicant.skills || []).length > 3 && (
+                              <Badge variant="outline" className="text-xs">
+                                +{applicant.skills.length - 3}
                               </Badge>
                             )}
                           </div>
-                        ) : (
-                          <span className="text-sm text-muted-foreground">Not provided</span>
-                        )}
-                      </TableCell>
-                      <TableCell>{applicant.experience}</TableCell>
-                      <TableCell>
-                        <div className="flex flex-wrap gap-1">
-                          {applicant.skills.slice(0, 3).map((skill) => (
-                            <Badge key={skill} variant="secondary" className="text-xs">
-                              {skill}
-                            </Badge>
-                          ))}
-                          {applicant.skills.length > 3 && (
-                            <Badge variant="outline" className="text-xs">
-                              +{applicant.skills.length - 3}
-                            </Badge>
-                          )}
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant={getScoreBadgeVariant(applicant.status)}>
-                          {applicant.status}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-muted-foreground">
-                        {new Date(applicant.appliedDate).toLocaleDateString()}
-                      </TableCell>
-                      <TableCell>
-                        {applicant.githubUsername && (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => validateGithubProfile(applicant)}
-                            disabled={validatingGithub === applicant.id}
-                            className="gap-2"
-                          >
-                            {validatingGithub === applicant.id ? (
-                              <>
-                                <Loader2 className="h-4 w-4 animate-spin" />
-                                Validating...
-                              </>
-                            ) : applicant.githubValidation ? (
-                              <>
-                                <Shield className="h-4 w-4" />
-                                View Details
-                              </>
-                            ) : (
-                              <>
-                                <Github className="h-4 w-4" />
-                                Validate GitHub
-                              </>
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant={getScoreBadgeVariant(applicant.status)}>
+                            {applicant.status || "pending"}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-muted-foreground">
+                          {new Date(applicant.created_at).toLocaleDateString()}
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex gap-2">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => {
+                                setSelectedApplicant(applicant);
+                                setShowAnalysisDialog(true);
+                              }}
+                              className="gap-1"
+                            >
+                              <Eye className="h-4 w-4" />
+                              View
+                            </Button>
+                            {applicant.github_username && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => validateGithubProfile(applicant)}
+                                disabled={validatingGithub === applicant.id}
+                                className="gap-1"
+                              >
+                                {validatingGithub === applicant.id ? (
+                                  <>
+                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                  </>
+                                ) : applicant.githubValidation ? (
+                                  <>
+                                    <Shield className="h-4 w-4" />
+                                  </>
+                                ) : (
+                                  <>
+                                    <Github className="h-4 w-4" />
+                                  </>
+                                )}
+                              </Button>
                             )}
-                          </Button>
-                        )}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
           </CardContent>
         </Card>
       </main>
+
+      {/* Resume Analysis Dialog */}
+      <Dialog open={showAnalysisDialog} onOpenChange={setShowAnalysisDialog}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <FileText className="h-5 w-5" />
+              Resume Analysis - {selectedApplicant?.name}
+            </DialogTitle>
+            <DialogDescription>
+              AI-powered analysis of the applicant's resume
+            </DialogDescription>
+          </DialogHeader>
+          
+          {selectedApplicant?.resume_analysis && (
+            <div className="space-y-6">
+              {/* Score */}
+              <div className="flex items-center justify-between p-4 bg-muted rounded-lg">
+                <div>
+                  <p className="text-sm text-muted-foreground">Overall Score</p>
+                  <p className={`text-3xl font-bold ${getScoreColor(selectedApplicant.ai_score)}`}>
+                    {selectedApplicant.ai_score}%
+                  </p>
+                </div>
+                <Badge variant={getScoreBadgeVariant(selectedApplicant.status)} className="text-lg px-4 py-2">
+                  {selectedApplicant.status}
+                </Badge>
+              </div>
+
+              {/* Summary */}
+              {selectedApplicant.resume_analysis.summary && (
+                <div>
+                  <h4 className="font-semibold mb-2">Summary</h4>
+                  <p className="text-muted-foreground">{selectedApplicant.resume_analysis.summary}</p>
+                </div>
+              )}
+
+              {/* Strengths */}
+              {selectedApplicant.resume_analysis.strengths && selectedApplicant.resume_analysis.strengths.length > 0 && (
+                <div>
+                  <h4 className="font-semibold mb-2 flex items-center gap-2">
+                    <CheckCircle className="h-4 w-4 text-success" />
+                    Strengths
+                  </h4>
+                  <ul className="space-y-2">
+                    {selectedApplicant.resume_analysis.strengths.map((strength, i) => (
+                      <li key={i} className="flex items-start gap-2 text-sm">
+                        <CheckCircle className="h-4 w-4 text-success mt-0.5 flex-shrink-0" />
+                        {strength}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {/* Weaknesses */}
+              {selectedApplicant.resume_analysis.weaknesses && selectedApplicant.resume_analysis.weaknesses.length > 0 && (
+                <div>
+                  <h4 className="font-semibold mb-2 flex items-center gap-2">
+                    <AlertTriangle className="h-4 w-4 text-warning" />
+                    Areas for Improvement
+                  </h4>
+                  <ul className="space-y-2">
+                    {selectedApplicant.resume_analysis.weaknesses.map((weakness, i) => (
+                      <li key={i} className="flex items-start gap-2 text-sm">
+                        <AlertTriangle className="h-4 w-4 text-warning mt-0.5 flex-shrink-0" />
+                        {weakness}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {/* Recommendations */}
+              {selectedApplicant.resume_analysis.recommendations && selectedApplicant.resume_analysis.recommendations.length > 0 && (
+                <div>
+                  <h4 className="font-semibold mb-2">Hiring Recommendations</h4>
+                  <ul className="space-y-2">
+                    {selectedApplicant.resume_analysis.recommendations.map((rec, i) => (
+                      <li key={i} className="flex items-start gap-2 text-sm text-muted-foreground">
+                        <span className="font-bold text-primary">{i + 1}.</span>
+                        {rec}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* GitHub Validation Dialog */}
       <Dialog open={showValidationDialog} onOpenChange={setShowValidationDialog}>
@@ -477,54 +597,44 @@ const Dashboard = () => {
               GitHub Profile Validation
             </DialogTitle>
             <DialogDescription>
-              AI-powered authenticity analysis for {selectedApplicant?.name}
+              AI analysis of {selectedApplicant?.name}'s GitHub profile authenticity
             </DialogDescription>
           </DialogHeader>
           
           {selectedApplicant?.githubValidation && (
             <div className="space-y-6">
-              {/* Score Overview */}
-              <div className="grid grid-cols-3 gap-4">
-                <Card className="p-4">
-                  <div className="text-sm text-muted-foreground mb-1">Authenticity Score</div>
-                  <div className={`text-3xl font-bold ${getScoreColor(selectedApplicant.githubValidation.score)}`}>
+              {/* Score */}
+              <div className="flex items-center justify-between p-4 bg-muted rounded-lg">
+                <div>
+                  <p className="text-sm text-muted-foreground">Authenticity Score</p>
+                  <p className={`text-3xl font-bold ${getScoreColor(selectedApplicant.githubValidation.score)}`}>
                     {selectedApplicant.githubValidation.score}%
-                  </div>
-                </Card>
-                <Card className="p-4">
-                  <div className="text-sm text-muted-foreground mb-1">Total Repos</div>
-                  <div className="text-3xl font-bold text-foreground">
-                    {selectedApplicant.githubValidation.totalRepos}
-                  </div>
-                </Card>
-                <Card className="p-4">
-                  <div className="text-sm text-muted-foreground mb-1">Account Age</div>
-                  <div className="text-3xl font-bold text-foreground">
-                    {Math.floor(selectedApplicant.githubValidation.accountAge / 365)}y
-                  </div>
-                </Card>
+                  </p>
+                </div>
+                <div className="text-right">
+                  <p className="text-sm text-muted-foreground">Total Repos</p>
+                  <p className="text-xl font-bold">{selectedApplicant.githubValidation.totalRepos}</p>
+                </div>
               </div>
 
               {/* Summary */}
               <div>
-                <h4 className="font-semibold mb-2 text-foreground">Analysis Summary</h4>
-                <p className="text-sm text-muted-foreground">
-                  {selectedApplicant.githubValidation.summary}
-                </p>
+                <h4 className="font-semibold mb-2">Analysis Summary</h4>
+                <p className="text-muted-foreground">{selectedApplicant.githubValidation.summary}</p>
               </div>
 
               {/* Positive Indicators */}
               {selectedApplicant.githubValidation.positiveIndicators.length > 0 && (
                 <div>
-                  <h4 className="font-semibold mb-2 flex items-center gap-2 text-foreground">
+                  <h4 className="font-semibold mb-2 flex items-center gap-2">
                     <CheckCircle className="h-4 w-4 text-success" />
                     Positive Indicators
                   </h4>
                   <ul className="space-y-2">
-                    {selectedApplicant.githubValidation.positiveIndicators.map((indicator, idx) => (
-                      <li key={idx} className="flex items-start gap-2 text-sm">
+                    {selectedApplicant.githubValidation.positiveIndicators.map((indicator, i) => (
+                      <li key={i} className="flex items-start gap-2 text-sm">
                         <CheckCircle className="h-4 w-4 text-success mt-0.5 flex-shrink-0" />
-                        <span className="text-muted-foreground">{indicator}</span>
+                        {indicator}
                       </li>
                     ))}
                   </ul>
@@ -534,32 +644,20 @@ const Dashboard = () => {
               {/* Red Flags */}
               {selectedApplicant.githubValidation.redFlags.length > 0 && (
                 <div>
-                  <h4 className="font-semibold mb-2 flex items-center gap-2 text-foreground">
+                  <h4 className="font-semibold mb-2 flex items-center gap-2">
                     <AlertTriangle className="h-4 w-4 text-destructive" />
                     Red Flags
                   </h4>
                   <ul className="space-y-2">
-                    {selectedApplicant.githubValidation.redFlags.map((flag, idx) => (
-                      <li key={idx} className="flex items-start gap-2 text-sm">
+                    {selectedApplicant.githubValidation.redFlags.map((flag, i) => (
+                      <li key={i} className="flex items-start gap-2 text-sm">
                         <AlertTriangle className="h-4 w-4 text-destructive mt-0.5 flex-shrink-0" />
-                        <span className="text-muted-foreground">{flag}</span>
+                        {flag}
                       </li>
                     ))}
                   </ul>
                 </div>
               )}
-
-              <div className="flex justify-end gap-2 pt-4 border-t">
-                <Button
-                  variant="outline"
-                  onClick={() => window.open(`https://github.com/${selectedApplicant.githubUsername}`, '_blank')}
-                >
-                  View GitHub Profile
-                </Button>
-                <Button onClick={() => setShowValidationDialog(false)}>
-                  Close
-                </Button>
-              </div>
             </div>
           )}
         </DialogContent>

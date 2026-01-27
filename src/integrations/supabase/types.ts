@@ -14,6 +14,68 @@ export type Database = {
   }
   public: {
     Tables: {
+      applicants: {
+        Row: {
+          ai_score: number | null
+          created_at: string
+          email: string
+          experience: string | null
+          github_username: string | null
+          github_validation_id: string | null
+          id: string
+          name: string
+          position: string
+          resume_analysis: Json | null
+          resume_url: string | null
+          skills: string[] | null
+          status: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          ai_score?: number | null
+          created_at?: string
+          email: string
+          experience?: string | null
+          github_username?: string | null
+          github_validation_id?: string | null
+          id?: string
+          name: string
+          position: string
+          resume_analysis?: Json | null
+          resume_url?: string | null
+          skills?: string[] | null
+          status?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          ai_score?: number | null
+          created_at?: string
+          email?: string
+          experience?: string | null
+          github_username?: string | null
+          github_validation_id?: string | null
+          id?: string
+          name?: string
+          position?: string
+          resume_analysis?: Json | null
+          resume_url?: string | null
+          skills?: string[] | null
+          status?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "applicants_github_validation_id_fkey"
+            columns: ["github_validation_id"]
+            isOneToOne: false
+            referencedRelation: "github_validations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       github_validations: {
         Row: {
           account_age_days: number | null
@@ -59,6 +121,36 @@ export type Database = {
           total_commits?: number | null
           total_repos?: number | null
           validated_at?: string
+        }
+        Relationships: []
+      }
+      profiles: {
+        Row: {
+          company_name: string | null
+          created_at: string
+          email: string | null
+          full_name: string | null
+          id: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          company_name?: string | null
+          created_at?: string
+          email?: string | null
+          full_name?: string | null
+          id?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          company_name?: string | null
+          created_at?: string
+          email?: string | null
+          full_name?: string | null
+          id?: string
+          updated_at?: string
+          user_id?: string
         }
         Relationships: []
       }
