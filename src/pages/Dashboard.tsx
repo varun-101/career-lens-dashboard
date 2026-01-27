@@ -26,11 +26,15 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Download, FileText, LogOut, Search, TrendingUp, Users, Github, Shield, AlertTriangle, CheckCircle, Loader2, Eye } from "lucide-react";
+import { Download, FileText, LogOut, Search, TrendingUp, Users, Github, Shield, AlertTriangle, CheckCircle, Loader2, Eye, BarChart3, Briefcase } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { AddApplicantDialog } from "@/components/AddApplicantDialog";
+import { AnalyticsCharts } from "@/components/AnalyticsCharts";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { CreateJobDialog } from "@/components/CreateJobDialog";
+import { JobPostingCard } from "@/components/JobPostingCard";
 
 interface ResumeAnalysis {
   score?: number;
@@ -56,6 +60,7 @@ interface Applicant {
   github_username: string | null;
   resume_url: string | null;
   resume_analysis: ResumeAnalysis | null;
+  job_posting_id: string | null;
   githubValidation?: {
     score: number;
     summary: string;
@@ -70,13 +75,16 @@ const Dashboard = () => {
   const navigate = useNavigate();
   const { user, loading, signOut } = useAuth();
   const [applicants, setApplicants] = useState<Applicant[]>([]);
+  const [jobPostings, setJobPostings] = useState<any[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [filterStatus, setFilterStatus] = useState<string>("all");
+  const [filterJobPosting, setFilterJobPosting] = useState<string>("all");
   const [selectedApplicant, setSelectedApplicant] = useState<Applicant | null>(null);
   const [validatingGithub, setValidatingGithub] = useState<string | null>(null);
   const [showValidationDialog, setShowValidationDialog] = useState(false);
   const [showAnalysisDialog, setShowAnalysisDialog] = useState(false);
   const [isLoadingApplicants, setIsLoadingApplicants] = useState(true);
+  const [isLoadingJobs, setIsLoadingJobs] = useState(true);
 
   useEffect(() => {
     if (!loading && !user) {
@@ -86,7 +94,7 @@ const Dashboard = () => {
 
   const fetchApplicants = async () => {
     if (!user) return;
-    
+
     setIsLoadingApplicants(true);
     try {
       const { data, error } = await supabase
@@ -114,6 +122,7 @@ const Dashboard = () => {
         github_username: record.github_username,
         resume_url: record.resume_url,
         resume_analysis: record.resume_analysis as ResumeAnalysis | null,
+        job_posting_id: record.job_posting_id || null,
       }));
 
       setApplicants(mappedApplicants);
@@ -124,9 +133,34 @@ const Dashboard = () => {
     }
   };
 
+  const fetchJobPostings = async () => {
+    if (!user) return;
+
+    setIsLoadingJobs(true);
+    try {
+      const { data, error } = await supabase
+        .from("job_postings" as any)
+        .select("*")
+        .order("created_at", { ascending: false });
+
+      if (error) {
+        console.error("Error fetching job postings:", error);
+        toast.error("Failed to load job postings");
+        return;
+      }
+
+      setJobPostings(data || []);
+    } catch (error) {
+      console.error("Error:", error);
+    } finally {
+      setIsLoadingJobs(false);
+    }
+  };
+
   useEffect(() => {
     if (user) {
       fetchApplicants();
+      fetchJobPostings();
     }
   }, [user]);
 
@@ -143,7 +177,7 @@ const Dashboard = () => {
     }
 
     setValidatingGithub(applicant.id);
-    
+
     try {
       const { data, error } = await supabase.functions.invoke("validate-github", {
         body: {
@@ -176,7 +210,7 @@ const Dashboard = () => {
           }
           return a;
         });
-        
+
         setApplicants(updatedApplicants);
         setSelectedApplicant(updatedApplicants.find(a => a.id === applicant.id) || null);
         setShowValidationDialog(true);
@@ -216,7 +250,8 @@ const Dashboard = () => {
       applicant.position.toLowerCase().includes(searchTerm.toLowerCase()) ||
       applicant.email.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesFilter = filterStatus === "all" || applicant.status === filterStatus;
-    return matchesSearch && matchesFilter;
+    const matchesJobPosting = filterJobPosting === "all" || applicant.job_posting_id === filterJobPosting;
+    return matchesSearch && matchesFilter && matchesJobPosting;
   });
 
   const exportToCSV = () => {
@@ -242,10 +277,10 @@ const Dashboard = () => {
     toast.success("Data exported successfully!");
   };
 
-  const averageScore = filteredApplicants.length > 0 
+  const averageScore = filteredApplicants.length > 0
     ? Math.round(
-        filteredApplicants.reduce((acc, curr) => acc + (curr.ai_score || 0), 0) / filteredApplicants.length
-      )
+      filteredApplicants.reduce((acc, curr) => acc + (curr.ai_score || 0), 0) / filteredApplicants.length
+    )
     : 0;
 
   if (loading) {
@@ -320,181 +355,249 @@ const Dashboard = () => {
           </Card>
         </div>
 
-        {/* Main Table Card */}
-        <Card className="shadow-elevated border-border">
-          <CardHeader>
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-              <div>
-                <CardTitle className="text-2xl">Applicant Analysis</CardTitle>
-                <CardDescription>AI-powered resume screening results</CardDescription>
-              </div>
-              <div className="flex gap-2">
-                <AddApplicantDialog onApplicantAdded={fetchApplicants} />
-                <Button onClick={exportToCSV} variant="outline" className="gap-2">
-                  <Download className="h-4 w-4" />
-                  Export CSV
-                </Button>
-              </div>
-            </div>
+        {/* Tabbed Content */}
+        <Tabs defaultValue="applicants" className="space-y-6">
+          <TabsList className="grid w-full max-w-2xl grid-cols-3">
+            <TabsTrigger value="applicants" className="gap-2">
+              <Users className="h-4 w-4" />
+              Applicants
+            </TabsTrigger>
+            <TabsTrigger value="analytics" className="gap-2">
+              <BarChart3 className="h-4 w-4" />
+              Analytics
+            </TabsTrigger>
+            <TabsTrigger value="jobs" className="gap-2">
+              <Briefcase className="h-4 w-4" />
+              Job Postings
+            </TabsTrigger>
+          </TabsList>
 
-            {/* Filters */}
-            <div className="flex flex-col sm:flex-row gap-4 mt-4">
-              <div className="relative flex-1">
-                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  placeholder="Search by name, position, or email..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="pl-10"
-                />
-              </div>
-              <Select value={filterStatus} onValueChange={setFilterStatus}>
-                <SelectTrigger className="w-full sm:w-[180px]">
-                  <SelectValue placeholder="Filter by status" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Status</SelectItem>
-                  <SelectItem value="excellent">Excellent</SelectItem>
-                  <SelectItem value="good">Good</SelectItem>
-                  <SelectItem value="average">Average</SelectItem>
-                  <SelectItem value="pending">Pending</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </CardHeader>
-          <CardContent>
-            {isLoadingApplicants ? (
-              <div className="flex items-center justify-center py-12">
-                <Loader2 className="h-8 w-8 animate-spin text-primary" />
-              </div>
-            ) : filteredApplicants.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-12 text-center">
-                <FileText className="h-12 w-12 text-muted-foreground mb-4" />
-                <h3 className="text-lg font-semibold text-foreground">No applicants yet</h3>
-                <p className="text-muted-foreground mt-1">
-                  Upload a resume to get started with AI-powered analysis
-                </p>
-              </div>
-            ) : (
-              <div className="rounded-md border border-border">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Name</TableHead>
-                      <TableHead>Position</TableHead>
-                      <TableHead>Score</TableHead>
-                      <TableHead>GitHub</TableHead>
-                      <TableHead>Experience</TableHead>
-                      <TableHead>Skills</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Applied</TableHead>
-                      <TableHead>Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {filteredApplicants.map((applicant) => (
-                      <TableRow key={applicant.id} className="hover:bg-muted/50">
-                        <TableCell className="font-medium">
-                          <div>
-                            <div className="font-semibold text-foreground">{applicant.name}</div>
-                            <div className="text-sm text-muted-foreground">{applicant.email}</div>
-                          </div>
-                        </TableCell>
-                        <TableCell>{applicant.position}</TableCell>
-                        <TableCell>
-                          <span className={`text-lg font-bold ${getScoreColor(applicant.ai_score)}`}>
-                            {applicant.ai_score || 0}%
-                          </span>
-                        </TableCell>
-                        <TableCell>
-                          {applicant.github_username ? (
-                            <div className="flex items-center gap-2">
-                              <Github className="h-4 w-4 text-muted-foreground" />
-                              <span className="text-sm">{applicant.github_username}</span>
-                              {applicant.githubValidation && (
-                                <Badge 
-                                  variant={applicant.githubValidation.score >= 70 ? "default" : "destructive"}
+          {/* Applicants Tab */}
+          <TabsContent value="applicants">
+            <Card className="shadow-elevated border-border">
+              <CardHeader>
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                  <div>
+                    <CardTitle className="text-2xl">Applicant Analysis</CardTitle>
+                    <CardDescription>AI-powered resume screening results</CardDescription>
+                  </div>
+                  <div className="flex gap-2">
+                    <AddApplicantDialog onApplicantAdded={fetchApplicants} />
+                    <Button onClick={exportToCSV} variant="outline" className="gap-2">
+                      <Download className="h-4 w-4" />
+                      Export CSV
+                    </Button>
+                  </div>
+                </div>
+
+                {/* Filters */}
+                <div className="flex flex-col sm:flex-row gap-4 mt-4">
+                  <div className="relative flex-1">
+                    <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                    <Input
+                      placeholder="Search by name, position, or email..."
+                      value={searchTerm}
+                      onChange={(e) => setSearchTerm(e.target.value)}
+                      className="pl-10"
+                    />
+                  </div>
+                  <Select value={filterStatus} onValueChange={setFilterStatus}>
+                    <SelectTrigger className="w-full sm:w-[180px]">
+                      <SelectValue placeholder="Filter by status" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Status</SelectItem>
+                      <SelectItem value="excellent">Excellent</SelectItem>
+                      <SelectItem value="good">Good</SelectItem>
+                      <SelectItem value="average">Average</SelectItem>
+                      <SelectItem value="pending">Pending</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </CardHeader>
+              <CardContent>
+                {isLoadingApplicants ? (
+                  <div className="flex items-center justify-center py-12">
+                    <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                  </div>
+                ) : filteredApplicants.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-12 text-center">
+                    <FileText className="h-12 w-12 text-muted-foreground mb-4" />
+                    <h3 className="text-lg font-semibold text-foreground">No applicants yet</h3>
+                    <p className="text-muted-foreground mt-1">
+                      Upload a resume to get started with AI-powered analysis
+                    </p>
+                  </div>
+                ) : (
+                  <div className="rounded-md border border-border">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Name</TableHead>
+                          <TableHead>Position</TableHead>
+                          <TableHead>Score</TableHead>
+                          <TableHead>GitHub</TableHead>
+                          <TableHead>Experience</TableHead>
+                          <TableHead>Skills</TableHead>
+                          <TableHead>Status</TableHead>
+                          <TableHead>Applied</TableHead>
+                          <TableHead>Actions</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {filteredApplicants.map((applicant) => (
+                          <TableRow key={applicant.id} className="hover:bg-muted/50">
+                            <TableCell className="font-medium">
+                              <div>
+                                <div className="font-semibold text-foreground">{applicant.name}</div>
+                                <div className="text-sm text-muted-foreground">{applicant.email}</div>
+                              </div>
+                            </TableCell>
+                            <TableCell>{applicant.position}</TableCell>
+                            <TableCell>
+                              <span className={`text-lg font-bold ${getScoreColor(applicant.ai_score)}`}>
+                                {applicant.ai_score || 0}%
+                              </span>
+                            </TableCell>
+                            <TableCell>
+                              {applicant.github_username ? (
+                                <div className="flex items-center gap-2">
+                                  <Github className="h-4 w-4 text-muted-foreground" />
+                                  <span className="text-sm">{applicant.github_username}</span>
+                                  {applicant.githubValidation && (
+                                    <Badge
+                                      variant={applicant.githubValidation.score >= 70 ? "default" : "destructive"}
+                                      className="gap-1"
+                                    >
+                                      <Shield className="h-3 w-3" />
+                                      {applicant.githubValidation.score}%
+                                    </Badge>
+                                  )}
+                                </div>
+                              ) : (
+                                <span className="text-sm text-muted-foreground">Not provided</span>
+                              )}
+                            </TableCell>
+                            <TableCell>{applicant.experience || applicant.resume_analysis?.experience || "N/A"}</TableCell>
+                            <TableCell>
+                              <div className="flex flex-wrap gap-1">
+                                {(applicant.skills || []).slice(0, 3).map((skill) => (
+                                  <Badge key={skill} variant="secondary" className="text-xs">
+                                    {skill}
+                                  </Badge>
+                                ))}
+                                {(applicant.skills || []).length > 3 && (
+                                  <Badge variant="outline" className="text-xs">
+                                    +{applicant.skills.length - 3}
+                                  </Badge>
+                                )}
+                              </div>
+                            </TableCell>
+                            <TableCell>
+                              <Badge variant={getScoreBadgeVariant(applicant.status)}>
+                                {applicant.status || "pending"}
+                              </Badge>
+                            </TableCell>
+                            <TableCell className="text-muted-foreground">
+                              {new Date(applicant.created_at).toLocaleDateString()}
+                            </TableCell>
+                            <TableCell>
+                              <div className="flex gap-2">
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => navigate(`/candidate/${applicant.id}`)}
                                   className="gap-1"
                                 >
-                                  <Shield className="h-3 w-3" />
-                                  {applicant.githubValidation.score}%
-                                </Badge>
-                              )}
-                            </div>
-                          ) : (
-                            <span className="text-sm text-muted-foreground">Not provided</span>
-                          )}
-                        </TableCell>
-                        <TableCell>{applicant.experience || applicant.resume_analysis?.experience || "N/A"}</TableCell>
-                        <TableCell>
-                          <div className="flex flex-wrap gap-1">
-                            {(applicant.skills || []).slice(0, 3).map((skill) => (
-                              <Badge key={skill} variant="secondary" className="text-xs">
-                                {skill}
-                              </Badge>
-                            ))}
-                            {(applicant.skills || []).length > 3 && (
-                              <Badge variant="outline" className="text-xs">
-                                +{applicant.skills.length - 3}
-                              </Badge>
-                            )}
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant={getScoreBadgeVariant(applicant.status)}>
-                            {applicant.status || "pending"}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="text-muted-foreground">
-                          {new Date(applicant.created_at).toLocaleDateString()}
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex gap-2">
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => {
-                                setSelectedApplicant(applicant);
-                                setShowAnalysisDialog(true);
-                              }}
-                              className="gap-1"
-                            >
-                              <Eye className="h-4 w-4" />
-                              View
-                            </Button>
-                            {applicant.github_username && (
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => validateGithubProfile(applicant)}
-                                disabled={validatingGithub === applicant.id}
-                                className="gap-1"
-                              >
-                                {validatingGithub === applicant.id ? (
-                                  <>
-                                    <Loader2 className="h-4 w-4 animate-spin" />
-                                  </>
-                                ) : applicant.githubValidation ? (
-                                  <>
-                                    <Shield className="h-4 w-4" />
-                                  </>
-                                ) : (
-                                  <>
-                                    <Github className="h-4 w-4" />
-                                  </>
+                                  <Eye className="h-4 w-4" />
+                                  View
+                                </Button>
+                                {applicant.github_username && (
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => validateGithubProfile(applicant)}
+                                    disabled={validatingGithub === applicant.id}
+                                    className="gap-1"
+                                  >
+                                    {validatingGithub === applicant.id ? (
+                                      <>
+                                        <Loader2 className="h-4 w-4 animate-spin" />
+                                      </>
+                                    ) : applicant.githubValidation ? (
+                                      <>
+                                        <Shield className="h-4 w-4" />
+                                      </>
+                                    ) : (
+                                      <>
+                                        <Github className="h-4 w-4" />
+                                      </>
+                                    )}
+                                  </Button>
                                 )}
-                              </Button>
-                            )}
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* Analytics Tab */}
+          <TabsContent value="analytics">
+            <AnalyticsCharts applicants={applicants} />
+          </TabsContent>
+
+          {/* Job Postings Tab */}
+          <TabsContent value="jobs">
+            <div className="space-y-6">
+              <div className="flex justify-between items-center">
+                <div>
+                  <h2 className="text-2xl font-bold">Job Postings</h2>
+                  <p className="text-muted-foreground">Create and manage your job postings</p>
+                </div>
+                <CreateJobDialog onJobCreated={fetchJobPostings} />
               </div>
-            )}
-          </CardContent>
-        </Card>
+
+              {isLoadingJobs ? (
+                <div className="flex items-center justify-center py-12">
+                  <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                </div>
+              ) : jobPostings.length === 0 ? (
+                <Card className="shadow-soft border-border">
+                  <CardContent className="flex flex-col items-center justify-center py-12 text-center">
+                    <Briefcase className="h-12 w-12 text-muted-foreground mb-4" />
+                    <h3 className="text-lg font-semibold text-foreground">No job postings yet</h3>
+                    <p className="text-muted-foreground mt-1 mb-4">
+                      Create your first job posting to start receiving applications
+                    </p>
+                    <CreateJobDialog onJobCreated={fetchJobPostings} />
+                  </CardContent>
+                </Card>
+              ) : (
+                <div className="grid gap-6 md:grid-cols-2">
+                  {jobPostings.map((job) => (
+                    <JobPostingCard
+                      key={job.id}
+                      job={job}
+                      onUpdate={fetchJobPostings}
+                      onViewApplications={(jobId) => {
+                        setFilterJobPosting(jobId);
+                        // Switch to applicants tab
+                        const tabsList = document.querySelector('[value="applicants"]') as HTMLElement;
+                        tabsList?.click();
+                      }}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+          </TabsContent>
+        </Tabs>
       </main>
 
       {/* Resume Analysis Dialog */}
@@ -509,7 +612,7 @@ const Dashboard = () => {
               AI-powered analysis of the applicant's resume
             </DialogDescription>
           </DialogHeader>
-          
+
           {selectedApplicant?.resume_analysis && (
             <div className="space-y-6">
               {/* Score */}
@@ -583,6 +686,47 @@ const Dashboard = () => {
                   </ul>
                 </div>
               )}
+
+              {/* Resume Actions */}
+              {selectedApplicant.resume_url && (
+                <div className="flex justify-end gap-2 pt-4 border-t">
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      if (selectedApplicant.resume_url) {
+                        window.open(selectedApplicant.resume_url, '_blank');
+                      }
+                    }}
+                    className="gap-2"
+                  >
+                    <Eye className="h-4 w-4" />
+                    View Resume
+                  </Button>
+                  <Button
+                    onClick={async () => {
+                      if (!selectedApplicant.resume_url) return;
+                      try {
+                        const response = await fetch(selectedApplicant.resume_url);
+                        const blob = await response.blob();
+                        const url = window.URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = `${selectedApplicant.name.replace(/\s+/g, '_')}_resume.pdf`;
+                        a.click();
+                        window.URL.revokeObjectURL(url);
+                        toast.success("Resume downloaded successfully!");
+                      } catch (error) {
+                        console.error("Download error:", error);
+                        toast.error("Failed to download resume");
+                      }
+                    }}
+                    className="gap-2"
+                  >
+                    <Download className="h-4 w-4" />
+                    Download Resume
+                  </Button>
+                </div>
+              )}
             </div>
           )}
         </DialogContent>
@@ -600,7 +744,7 @@ const Dashboard = () => {
               AI analysis of {selectedApplicant?.name}'s GitHub profile authenticity
             </DialogDescription>
           </DialogHeader>
-          
+
           {selectedApplicant?.githubValidation && (
             <div className="space-y-6">
               {/* Score */}
