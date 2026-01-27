@@ -19,7 +19,7 @@ const Landing = () => {
             </p>
             <div className="flex gap-4 justify-center animate-in fade-in slide-in-from-bottom-6 duration-1000 delay-200">
               <Button asChild size="lg" variant="secondary" className="gap-2">
-                <Link to="/login">
+                <Link to="/auth">
                   Get Started <ArrowRight className="h-4 w-4" />
                 </Link>
               </Button>
@@ -114,7 +114,7 @@ const Landing = () => {
             Join forward-thinking HR teams using AI to make better hiring decisions.
           </p>
           <Button asChild size="lg" className="gap-2">
-            <Link to="/login">
+            <Link to="/auth">
               Start Analyzing Resumes <ArrowRight className="h-4 w-4" />
             </Link>
           </Button>
