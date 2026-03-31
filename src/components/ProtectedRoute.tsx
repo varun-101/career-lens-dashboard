@@ -6,8 +6,14 @@ interface ProtectedRouteProps {
   requiredRole?: AppRole;
 }
 
+const roleRedirect: Record<string, string> = {
+  hr: "/dashboard",
+  applicant: "/applicant-dashboard",
+  admin: "/admin-dashboard",
+};
+
 const ProtectedRoute = ({ children, requiredRole }: ProtectedRouteProps) => {
-  const { user, role, loading } = useAuth();
+  const { user, role, isVerified, loading } = useAuth();
 
   if (loading) {
     return (
@@ -21,8 +27,14 @@ const ProtectedRoute = ({ children, requiredRole }: ProtectedRouteProps) => {
     return <Navigate to="/auth" replace />;
   }
 
+  // Unverified applicants cannot access any protected route
+  if (role === "applicant" && isVerified === false) {
+    return <Navigate to="/auth" replace />;
+  }
+
+  // If a specific role is required, check and redirect to correct dashboard
   if (requiredRole && role && role !== requiredRole) {
-    const redirect = role === "hr" ? "/dashboard" : "/applicant-dashboard";
+    const redirect = role in roleRedirect ? roleRedirect[role] : "/auth";
     return <Navigate to={redirect} replace />;
   }
 

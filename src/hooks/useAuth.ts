@@ -2,20 +2,29 @@ import { useState, useEffect } from "react";
 import { User, Session } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
 
-export type AppRole = "hr" | "applicant" | null;
+export type AppRole = "hr" | "applicant" | "admin" | null;
 
 export const useAuth = () => {
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [role, setRole] = useState<AppRole>(null);
+  const [isVerified, setIsVerified] = useState<boolean | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const fetchRole = async (userId: string) => {
-    const { data } = await (supabase.from("user_roles" as any) as any)
-      .select("role")
-      .eq("user_id", userId)
-      .single();
-    setRole(data?.role ?? null);
+  const fetchRoleAndProfile = async (userId: string) => {
+    const [{ data: roleData }, { data: profileData }] = await Promise.all([
+      (supabase.from("user_roles" as any) as any)
+        .select("role")
+        .eq("user_id", userId)
+        .single(),
+      supabase
+        .from("profiles" as any)
+        .select("is_verified")
+        .eq("user_id", userId)
+        .single() as any,
+    ]);
+    setRole(roleData?.role ?? null);
+    setIsVerified(profileData?.is_verified ?? null);
   };
 
   useEffect(() => {
@@ -25,9 +34,10 @@ export const useAuth = () => {
         setUser(session?.user ?? null);
         if (session?.user) {
           // Defer role fetch to avoid deadlocks
-          setTimeout(() => fetchRole(session.user.id), 0);
+          setTimeout(() => fetchRoleAndProfile(session.user.id), 0);
         } else {
           setRole(null);
+          setIsVerified(null);
         }
         setLoading(false);
       }
@@ -37,7 +47,7 @@ export const useAuth = () => {
       setSession(session);
       setUser(session?.user ?? null);
       if (session?.user) {
-        fetchRole(session.user.id);
+        fetchRoleAndProfile(session.user.id);
       }
       setLoading(false);
     });
@@ -48,7 +58,8 @@ export const useAuth = () => {
   const signOut = async () => {
     await supabase.auth.signOut();
     setRole(null);
+    setIsVerified(null);
   };
 
-  return { user, session, role, loading, signOut };
+  return { user, session, role, isVerified, loading, signOut };
 };

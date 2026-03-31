@@ -7,6 +7,7 @@ import Landing from "./pages/Landing";
 import Auth from "./pages/Auth";
 import Dashboard from "./pages/Dashboard";
 import ApplicantDashboard from "./pages/ApplicantDashboard";
+import AdminDashboard from "./pages/AdminDashboard";
 import CandidateDetail from "./pages/CandidateDetail";
 import ApplyPage from "./pages/ApplyPage";
 import ApplicationSuccess from "./pages/ApplicationSuccess";
@@ -38,6 +39,14 @@ const App = () => (
             element={
               <ProtectedRoute requiredRole="applicant">
                 <ApplicantDashboard />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/admin-dashboard"
+            element={
+              <ProtectedRoute requiredRole="admin">
+                <AdminDashboard />
               </ProtectedRoute>
             }
           />

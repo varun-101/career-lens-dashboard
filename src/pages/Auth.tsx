@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Brain, Upload } from "lucide-react";
+import { Brain, Upload, IdCard, Clock } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
@@ -17,12 +17,15 @@ const Auth = () => {
   const [companyName, setCompanyName] = useState("");
   const [githubUsername, setGithubUsername] = useState("");
   const [resumeFile, setResumeFile] = useState<File | null>(null);
+  const [govIdFile, setGovIdFile] = useState<File | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isSignUp, setIsSignUp] = useState(false);
   const [selectedRole, setSelectedRole] = useState<Role>("applicant");
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const govIdInputRef = useRef<HTMLInputElement>(null);
   const navigate = useNavigate();
 
+  // On mount, check if already logged in
   useEffect(() => {
     const checkUser = async () => {
       const { data: { session } } = await supabase.auth.getSession();
@@ -31,25 +34,32 @@ const Auth = () => {
       }
     };
     checkUser();
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (session) {
-        await redirectByRole(session.user.id);
-      }
-    });
-
-    return () => subscription.unsubscribe();
-  }, [navigate]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const redirectByRole = async (userId: string) => {
-    const { data } = await (supabase.from("user_roles" as any) as any)
+    const { data: roleData } = await (supabase.from("user_roles" as any) as any)
       .select("role")
       .eq("user_id", userId)
       .single();
 
-    if (data?.role === "hr") {
+    if (roleData?.role === "admin") {
+      navigate("/admin-dashboard");
+    } else if (roleData?.role === "hr") {
       navigate("/dashboard");
     } else {
+      // Applicant — check verification
+      const { data: profileData } = await (supabase.from("profiles" as any) as any)
+        .select("is_verified")
+        .eq("user_id", userId)
+        .single();
+
+      if (profileData?.is_verified === false) {
+        // Sign them out and show pending message
+        await supabase.auth.signOut();
+        toast.warning("Your account is pending admin verification. Please wait for approval.");
+        return;
+      }
       navigate("/applicant-dashboard");
     }
   };
@@ -73,7 +83,7 @@ const Auth = () => {
       }
 
       if (data.user) {
-        toast.success("Login successful!");
+        await redirectByRole(data.user.id);
       }
     } catch (error) {
       toast.error("An unexpected error occurred");
@@ -84,6 +94,12 @@ const Auth = () => {
 
   const handleSignUp = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (selectedRole === "applicant" && !govIdFile) {
+      toast.error("Please upload your government ID to continue");
+      return;
+    }
+
     setIsLoading(true);
 
     try {
@@ -119,12 +135,35 @@ const Auth = () => {
       }
 
       if (data.user) {
-        // Create profile
-        await supabase.from("profiles").insert({
+        let govIdUrl: string | null = null;
+
+        // Upload government ID for applicants
+        if (selectedRole === "applicant" && govIdFile) {
+          const govIdExt = govIdFile.name.split(".").pop();
+          const govIdPath = `${data.user.id}/${Date.now()}.${govIdExt}`;
+
+          const { error: govUploadError } = await supabase.storage
+            .from("government-ids")
+            .upload(govIdPath, govIdFile);
+
+          if (!govUploadError) {
+            const { data: govUrlData } = await supabase.storage
+              .from("government-ids")
+              .createSignedUrl(govIdPath, 60 * 60 * 24 * 365); // 1 year
+            govIdUrl = govUrlData?.signedUrl ?? null;
+          } else {
+            console.error("Gov ID upload error:", govUploadError);
+          }
+        }
+
+        // Create profile (is_verified = false by default for applicants, true for HR)
+        await (supabase.from("profiles" as any) as any).insert({
           user_id: data.user.id,
           email,
           full_name: fullName,
           company_name: selectedRole === "hr" ? companyName : null,
+          government_id_url: govIdUrl,
+          is_verified: selectedRole === "hr", // HR is auto-verified; applicants need admin approval
         });
 
         // Assign role
@@ -173,7 +212,25 @@ const Auth = () => {
           }
         }
 
-        toast.success("Account created! Please check your email to verify your account.");
+        if (selectedRole === "hr") {
+          toast.success("Account created! Redirecting to your HR dashboard...");
+          // Sign in immediately since HR is auto-verified
+          const { data: signInData } = await supabase.auth.signInWithPassword({ email, password });
+          if (signInData.user) {
+            navigate("/dashboard");
+          } else {
+            toast.info("Please sign in with your new account.");
+            setIsSignUp(false);
+          }
+        } else {
+          // Applicant — account needs admin approval
+          await supabase.auth.signOut();
+          toast.success(
+            "Account created! Your government ID will be reviewed. You'll be able to log in once an admin approves your account.",
+            { duration: 8000 }
+          );
+          setIsSignUp(false);
+        }
       }
     } catch (error) {
       toast.error("An unexpected error occurred");
@@ -258,8 +315,39 @@ const Auth = () => {
 
                 {selectedRole === "applicant" && (
                   <>
+                    {/* Government ID upload — required */}
                     <div className="space-y-2">
-                      <Label htmlFor="resume">Resume (PDF)</Label>
+                      <Label htmlFor="govId">
+                        Government ID <span className="text-destructive">*</span>
+                      </Label>
+                      <div
+                        onClick={() => govIdInputRef.current?.click()}
+                        className={`flex items-center gap-2 border rounded-md px-3 py-2 cursor-pointer hover:bg-muted/50 transition-colors ${
+                          govIdFile ? "border-primary" : "border-input"
+                        }`}
+                      >
+                        <IdCard className={`h-4 w-4 ${govIdFile ? "text-primary" : "text-muted-foreground"}`} />
+                        <span className={`text-sm ${govIdFile ? "text-foreground" : "text-muted-foreground"}`}>
+                          {govIdFile ? govIdFile.name : "Upload Aadhaar / PAN / Passport (required)"}
+                        </span>
+                      </div>
+                      <input
+                        ref={govIdInputRef}
+                        id="govId"
+                        type="file"
+                        accept=".pdf,.jpg,.jpeg,.png"
+                        className="hidden"
+                        onChange={(e) => setGovIdFile(e.target.files?.[0] || null)}
+                      />
+                      <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                        <Clock className="h-3 w-3" />
+                        <span>Your account will be reviewed by an admin before you can log in.</span>
+                      </div>
+                    </div>
+
+                    {/* Resume upload — optional */}
+                    <div className="space-y-2">
+                      <Label htmlFor="resume">Resume (PDF) — Optional</Label>
                       <div
                         onClick={() => fileInputRef.current?.click()}
                         className="flex items-center gap-2 border border-input rounded-md px-3 py-2 cursor-pointer hover:bg-muted/50 transition-colors"
@@ -278,6 +366,7 @@ const Auth = () => {
                         onChange={(e) => setResumeFile(e.target.files?.[0] || null)}
                       />
                     </div>
+
                     <div className="space-y-2">
                       <Label htmlFor="github">GitHub Username (Optional)</Label>
                       <Input
