@@ -192,8 +192,8 @@ const ApplyPage = () => {
             setCurrentStep("Submitting application...");
             setProgress(85);
 
-            const { error: insertError } = await supabase
-                .from("applicants")
+            const { error: insertError } = await (supabase
+                .from("applicants" as any) as any)
                 .insert({
                     job_posting_id: jobId,
                     name,
@@ -206,7 +206,7 @@ const ApplyPage = () => {
                     status: analysis?.status || "pending",
                     experience: analysis?.experience || null,
                     skills: analysis?.skills || [],
-                    user_id: null, // Public applications don't have a user_id initially
+                    user_id: null,
                 });
 
             if (insertError) {
