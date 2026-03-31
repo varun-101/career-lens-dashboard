@@ -122,8 +122,8 @@ export const AddApplicantDialog = ({ onApplicantAdded }: AddApplicantDialogProps
       setCurrentStep("Saving applicant...");
       setProgress(85);
       
-      const { error: insertError } = await supabase
-        .from("applicants")
+      const { error: insertError } = await (supabase
+        .from("applicants" as any) as any)
         .insert({
           user_id: user.id,
           name,
