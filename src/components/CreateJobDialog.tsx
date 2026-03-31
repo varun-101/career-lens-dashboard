@@ -84,8 +84,8 @@ export const CreateJobDialog = ({ onJobCreated, editJob }: CreateJobDialogProps)
             };
 
             if (editJob) {
-                const { error } = await supabase
-                    .from("job_postings")
+                const { error } = await (supabase
+                    .from("job_postings" as any) as any)
                     .update(jobData)
                     .eq("id", editJob.id);
 
