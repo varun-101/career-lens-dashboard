@@ -59,8 +59,8 @@ export const JobPostingCard = ({ job, onUpdate, onViewApplications }: JobPosting
     const handleToggleStatus = async () => {
         setIsTogglingStatus(true);
         try {
-            const { error } = await supabase
-                .from("job_postings")
+            const { error } = await (supabase
+                .from("job_postings" as any) as any)
                 .update({ is_active: !job.is_active })
                 .eq("id", job.id);
 
@@ -82,8 +82,8 @@ export const JobPostingCard = ({ job, onUpdate, onViewApplications }: JobPosting
 
     const handleDelete = async () => {
         try {
-            const { error } = await supabase
-                .from("job_postings")
+            const { error } = await (supabase
+                .from("job_postings" as any) as any)
                 .delete()
                 .eq("id", job.id);
 

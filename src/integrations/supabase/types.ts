@@ -23,6 +23,7 @@ export type Database = {
           github_username: string | null
           github_validation_id: string | null
           id: string
+          job_posting_id: string | null
           name: string
           position: string
           resume_analysis: Json | null
@@ -30,7 +31,7 @@ export type Database = {
           skills: string[] | null
           status: string | null
           updated_at: string
-          user_id: string
+          user_id: string | null
         }
         Insert: {
           ai_score?: number | null
@@ -40,6 +41,7 @@ export type Database = {
           github_username?: string | null
           github_validation_id?: string | null
           id?: string
+          job_posting_id?: string | null
           name: string
           position: string
           resume_analysis?: Json | null
@@ -47,7 +49,7 @@ export type Database = {
           skills?: string[] | null
           status?: string | null
           updated_at?: string
-          user_id: string
+          user_id?: string | null
         }
         Update: {
           ai_score?: number | null
@@ -57,6 +59,7 @@ export type Database = {
           github_username?: string | null
           github_validation_id?: string | null
           id?: string
+          job_posting_id?: string | null
           name?: string
           position?: string
           resume_analysis?: Json | null
@@ -64,7 +67,7 @@ export type Database = {
           skills?: string[] | null
           status?: string | null
           updated_at?: string
-          user_id?: string
+          user_id?: string | null
         }
         Relationships: [
           {
@@ -72,6 +75,13 @@ export type Database = {
             columns: ["github_validation_id"]
             isOneToOne: false
             referencedRelation: "github_validations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "applicants_job_posting_id_fkey"
+            columns: ["job_posting_id"]
+            isOneToOne: false
+            referencedRelation: "job_postings"
             referencedColumns: ["id"]
           },
         ]
@@ -121,6 +131,51 @@ export type Database = {
           total_commits?: number | null
           total_repos?: number | null
           validated_at?: string
+        }
+        Relationships: []
+      }
+      job_postings: {
+        Row: {
+          application_count: number | null
+          created_at: string
+          description: string | null
+          employment_type: string | null
+          id: string
+          is_active: boolean | null
+          location: string | null
+          requirements: string[] | null
+          salary_range: string | null
+          title: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          application_count?: number | null
+          created_at?: string
+          description?: string | null
+          employment_type?: string | null
+          id?: string
+          is_active?: boolean | null
+          location?: string | null
+          requirements?: string[] | null
+          salary_range?: string | null
+          title: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          application_count?: number | null
+          created_at?: string
+          description?: string | null
+          employment_type?: string | null
+          id?: string
+          is_active?: boolean | null
+          location?: string | null
+          requirements?: string[] | null
+          salary_range?: string | null
+          title?: string
+          updated_at?: string
+          user_id?: string
         }
         Relationships: []
       }

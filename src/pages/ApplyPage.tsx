@@ -56,8 +56,8 @@ const ApplyPage = () => {
 
             try {
                 // Fetch job posting without authentication (public access)
-                const { data, error } = await supabase
-                    .from("job_postings")
+                const { data, error } = await (supabase
+                    .from("job_postings" as any) as any)
                     .select("*")
                     .eq("id", jobId)
                     .single();
@@ -68,7 +68,7 @@ const ApplyPage = () => {
                     return;
                 }
 
-                setJob(data as JobPosting);
+                setJob(data as unknown as JobPosting);
             } catch (error) {
                 console.error("Error:", error);
                 toast.error("Failed to load job posting");
@@ -94,8 +94,8 @@ const ApplyPage = () => {
 
     const checkDuplicateApplication = async (): Promise<boolean> => {
         try {
-            const { data, error } = await supabase
-                .from("applicants")
+            const { data, error } = await (supabase
+                .from("applicants" as any) as any)
                 .select("id")
                 .eq("email", email)
                 .eq("job_posting_id", jobId)
@@ -192,8 +192,8 @@ const ApplyPage = () => {
             setCurrentStep("Submitting application...");
             setProgress(85);
 
-            const { error: insertError } = await supabase
-                .from("applicants")
+            const { error: insertError } = await (supabase
+                .from("applicants" as any) as any)
                 .insert({
                     job_posting_id: jobId,
                     name,
@@ -206,7 +206,7 @@ const ApplyPage = () => {
                     status: analysis?.status || "pending",
                     experience: analysis?.experience || null,
                     skills: analysis?.skills || [],
-                    user_id: null, // Public applications don't have a user_id initially
+                    user_id: null,
                 });
 
             if (insertError) {

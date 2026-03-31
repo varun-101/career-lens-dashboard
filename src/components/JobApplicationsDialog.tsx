@@ -63,8 +63,8 @@ export const JobApplicationsDialog = ({
     const fetchApplicants = async () => {
         setLoading(true);
         try {
-            const { data, error } = await supabase
-                .from("applicants")
+            const { data, error } = await (supabase
+                .from("applicants" as any) as any)
                 .select("*")
                 .eq("job_posting_id", jobId)
                 .order("created_at", { ascending: false });

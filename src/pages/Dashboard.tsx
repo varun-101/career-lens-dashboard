@@ -97,8 +97,8 @@ const Dashboard = () => {
 
     setIsLoadingApplicants(true);
     try {
-      const { data, error } = await supabase
-        .from("applicants")
+      const { data, error } = await (supabase
+        .from("applicants" as any) as any)
         .select("*")
         .order("created_at", { ascending: false });
 
