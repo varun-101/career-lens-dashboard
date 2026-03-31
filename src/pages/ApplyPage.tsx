@@ -68,7 +68,7 @@ const ApplyPage = () => {
                     return;
                 }
 
-                setJob(data as JobPosting);
+                setJob(data as unknown as JobPosting);
             } catch (error) {
                 console.error("Error:", error);
                 toast.error("Failed to load job posting");
