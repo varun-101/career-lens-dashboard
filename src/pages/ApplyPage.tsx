@@ -94,8 +94,8 @@ const ApplyPage = () => {
 
     const checkDuplicateApplication = async (): Promise<boolean> => {
         try {
-            const { data, error } = await supabase
-                .from("applicants")
+            const { data, error } = await (supabase
+                .from("applicants" as any) as any)
                 .select("id")
                 .eq("email", email)
                 .eq("job_posting_id", jobId)
