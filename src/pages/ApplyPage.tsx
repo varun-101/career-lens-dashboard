@@ -56,8 +56,8 @@ const ApplyPage = () => {
 
             try {
                 // Fetch job posting without authentication (public access)
-                const { data, error } = await supabase
-                    .from("job_postings")
+                const { data, error } = await (supabase
+                    .from("job_postings" as any) as any)
                     .select("*")
                     .eq("id", jobId)
                     .single();
