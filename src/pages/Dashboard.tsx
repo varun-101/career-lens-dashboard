@@ -58,6 +58,8 @@ interface Applicant {
   created_at: string;
   status: string | null;
   github_username: string | null;
+  github_extracted_username: string | null;
+  github_match_status: string | null;
   resume_url: string | null;
   resume_analysis: ResumeAnalysis | null;
   job_posting_id: string | null;
@@ -120,6 +122,8 @@ const Dashboard = () => {
         created_at: record.created_at,
         status: record.status,
         github_username: record.github_username,
+        github_extracted_username: (record as any).github_extracted_username ?? null,
+        github_match_status: (record as any).github_match_status ?? null,
         resume_url: record.resume_url,
         resume_analysis: record.resume_analysis as ResumeAnalysis | null,
         job_posting_id: record.job_posting_id || null,
@@ -168,6 +172,22 @@ const Dashboard = () => {
     await signOut();
     toast.success("Logged out successfully");
     navigate("/auth");
+  };
+
+  const getSignedResumeUrl = async (resumeUrl: string): Promise<string | null> => {
+    try {
+      const url = new URL(resumeUrl);
+      const pathParts = url.pathname.split('/resumes/');
+      if (pathParts.length < 2) return resumeUrl;
+      const filePath = pathParts[1];
+      const { data, error } = await supabase.storage
+        .from('resumes')
+        .createSignedUrl(filePath, 60 * 60); // 1-hour signed URL
+      if (error || !data?.signedUrl) return null;
+      return data.signedUrl;
+    } catch {
+      return null;
+    }
   };
 
   const validateGithubProfile = async (applicant: Applicant) => {
@@ -461,17 +481,32 @@ const Dashboard = () => {
                             </TableCell>
                             <TableCell>
                               {applicant.github_username ? (
-                                <div className="flex items-center gap-2">
-                                  <Github className="h-4 w-4 text-muted-foreground" />
-                                  <span className="text-sm">{applicant.github_username}</span>
-                                  {applicant.githubValidation && (
-                                    <Badge
-                                      variant={applicant.githubValidation.score >= 70 ? "default" : "destructive"}
-                                      className="gap-1"
-                                    >
-                                      <Shield className="h-3 w-3" />
-                                      {applicant.githubValidation.score}%
-                                    </Badge>
+                                <div className="flex flex-col gap-1">
+                                  <div className="flex items-center gap-1.5">
+                                    <Github className="h-3.5 w-3.5 text-muted-foreground" />
+                                    <span className="text-sm">{applicant.github_username}</span>
+                                    {applicant.githubValidation && (
+                                      <Badge
+                                        variant={applicant.githubValidation.score >= 70 ? "default" : "destructive"}
+                                        className="gap-1 text-xs px-1.5 py-0"
+                                      >
+                                        <Shield className="h-3 w-3" />
+                                        {applicant.githubValidation.score}%
+                                      </Badge>
+                                    )}
+                                  </div>
+                                  {/* Mismatch indicator */}
+                                  {applicant.github_match_status === "mismatch" && applicant.github_extracted_username && (
+                                    <div className="flex items-center gap-1 text-xs text-destructive">
+                                      <AlertTriangle className="h-3 w-3" />
+                                      <span>Resume: @{applicant.github_extracted_username}</span>
+                                    </div>
+                                  )}
+                                  {applicant.github_match_status === "match" && (
+                                    <div className="flex items-center gap-1 text-xs text-success">
+                                      <CheckCircle className="h-3 w-3" />
+                                      <span>Verified in resume</span>
+                                    </div>
                                   )}
                                 </div>
                               ) : (
@@ -692,10 +727,11 @@ const Dashboard = () => {
                 <div className="flex justify-end gap-2 pt-4 border-t">
                   <Button
                     variant="outline"
-                    onClick={() => {
-                      if (selectedApplicant.resume_url) {
-                        window.open(selectedApplicant.resume_url, '_blank');
-                      }
+                    onClick={async () => {
+                      if (!selectedApplicant.resume_url) return;
+                      const signedUrl = await getSignedResumeUrl(selectedApplicant.resume_url);
+                      if (!signedUrl) { toast.error("Failed to generate resume link"); return; }
+                      window.open(signedUrl, '_blank');
                     }}
                     className="gap-2"
                   >
@@ -706,7 +742,9 @@ const Dashboard = () => {
                     onClick={async () => {
                       if (!selectedApplicant.resume_url) return;
                       try {
-                        const response = await fetch(selectedApplicant.resume_url);
+                        const signedUrl = await getSignedResumeUrl(selectedApplicant.resume_url);
+                        if (!signedUrl) { toast.error("Failed to generate download link"); return; }
+                        const response = await fetch(signedUrl);
                         const blob = await response.blob();
                         const url = window.URL.createObjectURL(blob);
                         const a = document.createElement('a');

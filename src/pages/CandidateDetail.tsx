@@ -16,7 +16,9 @@ import {
     AlertTriangle,
     Shield,
     Loader2,
-    FileText
+    FileText,
+    GitBranch,
+    Info,
 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
@@ -33,6 +35,16 @@ interface ResumeAnalysis {
     recommendations?: string[];
 }
 
+interface GitHubValidation {
+    id: string;
+    authenticity_score: number;
+    analysis_summary: string | null;
+    red_flags: string[];
+    positive_indicators: string[];
+    total_repos: number;
+    account_age_days: number;
+}
+
 interface Applicant {
     id: string;
     name: string;
@@ -44,6 +56,9 @@ interface Applicant {
     created_at: string;
     status: string | null;
     github_username: string | null;
+    github_extracted_username: string | null;
+    github_match_status: string | null;
+    github_validation_id: string | null;
     resume_url: string | null;
     resume_analysis: ResumeAnalysis | null;
 }
@@ -54,6 +69,7 @@ const CandidateDetail = () => {
     const { user, loading: authLoading } = useAuth();
     const [applicant, setApplicant] = useState<Applicant | null>(null);
     const [loading, setLoading] = useState(true);
+    const [githubValidation, setGithubValidation] = useState<GitHubValidation | null>(null);
 
     useEffect(() => {
         if (!authLoading && !user) {
@@ -90,9 +106,32 @@ const CandidateDetail = () => {
                     created_at: data.created_at,
                     status: data.status,
                     github_username: data.github_username,
+                    github_extracted_username: (data as any).github_extracted_username ?? null,
+                    github_match_status: (data as any).github_match_status ?? null,
+                    github_validation_id: data.github_validation_id ?? null,
                     resume_url: data.resume_url,
                     resume_analysis: data.resume_analysis as ResumeAnalysis | null,
                 };
+
+                // Fetch GitHub validation if present
+                if (data.github_validation_id) {
+                    const { data: ghVal } = await supabase
+                        .from("github_validations")
+                        .select("*")
+                        .eq("id", data.github_validation_id)
+                        .single();
+                    if (ghVal) {
+                        setGithubValidation({
+                            id: ghVal.id,
+                            authenticity_score: ghVal.authenticity_score,
+                            analysis_summary: ghVal.analysis_summary,
+                            red_flags: (ghVal.red_flags as string[]) || [],
+                            positive_indicators: (ghVal.positive_indicators as string[]) || [],
+                            total_repos: ghVal.total_repos,
+                            account_age_days: ghVal.account_age_days,
+                        });
+                    }
+                }
 
                 setApplicant(mappedApplicant);
             } catch (error) {
@@ -126,10 +165,51 @@ const CandidateDetail = () => {
         }
     };
 
+    const getSignedResumeUrl = async (resumeUrl: string): Promise<string | null> => {
+        try {
+            // Extract the storage path from the full URL
+            // URLs look like: https://<project>.supabase.co/storage/v1/object/public/resumes/<path>
+            // or:             https://<project>.supabase.co/storage/v1/object/sign/resumes/<path>
+            const url = new URL(resumeUrl);
+            const pathParts = url.pathname.split('/resumes/');
+            if (pathParts.length < 2) return resumeUrl; // fallback
+
+            const filePath = pathParts[1];
+
+            const { data, error } = await supabase.storage
+                .from('resumes')
+                .createSignedUrl(filePath, 60 * 60); // 1 hour
+
+            if (error || !data?.signedUrl) {
+                console.error('Signed URL error:', error);
+                return null;
+            }
+            return data.signedUrl;
+        } catch (err) {
+            console.error('getSignedResumeUrl error:', err);
+            return null;
+        }
+    };
+
+    const handleViewResume = async () => {
+        if (!applicant?.resume_url) return;
+        const signedUrl = await getSignedResumeUrl(applicant.resume_url);
+        if (!signedUrl) {
+            toast.error('Failed to generate resume link');
+            return;
+        }
+        window.open(signedUrl, '_blank');
+    };
+
     const handleDownloadResume = async () => {
         if (!applicant?.resume_url) return;
         try {
-            const response = await fetch(applicant.resume_url);
+            const signedUrl = await getSignedResumeUrl(applicant.resume_url);
+            if (!signedUrl) {
+                toast.error('Failed to generate download link');
+                return;
+            }
+            const response = await fetch(signedUrl);
             const blob = await response.blob();
             const url = window.URL.createObjectURL(blob);
             const a = document.createElement('a');
@@ -238,7 +318,7 @@ const CandidateDetail = () => {
                                     <div className="flex gap-2">
                                         <Button
                                             variant="outline"
-                                            onClick={() => window.open(applicant.resume_url!, '_blank')}
+                                            onClick={handleViewResume}
                                             className="gap-2"
                                         >
                                             <Eye className="h-4 w-4" />
@@ -254,6 +334,132 @@ const CandidateDetail = () => {
                         </div>
                     </CardContent>
                 </Card>
+
+                {/* ── GitHub Cross-Validation Card ── */}
+                {(applicant.github_username || applicant.github_extracted_username) && (
+                    <Card className="shadow-soft border-border mb-6">
+                        <CardHeader>
+                            <CardTitle className="flex items-center gap-2">
+                                <Github className="h-5 w-5" />
+                                GitHub Verification
+                            </CardTitle>
+                            <CardDescription>Cross-validation between provided and resume-extracted GitHub</CardDescription>
+                        </CardHeader>
+                        <CardContent className="space-y-4">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                {/* Provided username */}
+                                <div className="space-y-1">
+                                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Provided by candidate</p>
+                                    {applicant.github_username ? (
+                                        <a
+                                            href={`https://github.com/${applicant.github_username}`}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="flex items-center gap-2 text-sm font-medium hover:text-primary transition-colors"
+                                        >
+                                            <Github className="h-4 w-4" />
+                                            @{applicant.github_username}
+                                        </a>
+                                    ) : (
+                                        <p className="text-sm text-muted-foreground">Not provided</p>
+                                    )}
+                                </div>
+
+                                {/* Extracted from resume */}
+                                <div className="space-y-1">
+                                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Extracted from resume</p>
+                                    {applicant.github_extracted_username ? (
+                                        <a
+                                            href={`https://github.com/${applicant.github_extracted_username}`}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="flex items-center gap-2 text-sm font-medium hover:text-primary transition-colors"
+                                        >
+                                            <GitBranch className="h-4 w-4" />
+                                            @{applicant.github_extracted_username}
+                                        </a>
+                                    ) : (
+                                        <p className="text-sm text-muted-foreground">Not found in resume</p>
+                                    )}
+                                </div>
+                            </div>
+
+                            {/* Match status badge */}
+                            <div className="flex items-center gap-2">
+                                {applicant.github_match_status === "match" && (
+                                    <Badge variant="default" className="gap-1 bg-green-600">
+                                        <CheckCircle className="h-3 w-3" /> Verified Match
+                                    </Badge>
+                                )}
+                                {applicant.github_match_status === "mismatch" && (
+                                    <Badge variant="destructive" className="gap-1">
+                                        <AlertTriangle className="h-3 w-3" /> Mismatch — Review Required
+                                    </Badge>
+                                )}
+                                {applicant.github_match_status === "provided_only" && (
+                                    <Badge variant="outline" className="gap-1">
+                                        <Info className="h-3 w-3" /> Provided only (not in resume)
+                                    </Badge>
+                                )}
+                                {applicant.github_match_status === "extracted_only" && (
+                                    <Badge variant="secondary" className="gap-1">
+                                        <GitBranch className="h-3 w-3" /> Extracted only (not declared)
+                                    </Badge>
+                                )}
+                            </div>
+
+                            {/* GitHub validation score */}
+                            {githubValidation && (
+                                <>
+                                    <Separator />
+                                    <div className="space-y-3">
+                                        <div className="flex items-center justify-between">
+                                            <p className="text-sm font-semibold">Authenticity Score</p>
+                                            <span className={`text-2xl font-bold ${githubValidation.authenticity_score >= 70 ? "text-success" :
+                                                    githubValidation.authenticity_score >= 50 ? "text-warning" : "text-destructive"
+                                                }`}>
+                                                {githubValidation.authenticity_score}%
+                                            </span>
+                                        </div>
+                                        <div className="grid grid-cols-2 gap-3 text-sm text-muted-foreground">
+                                            <div>📁 {githubValidation.total_repos} repositories</div>
+                                            <div>📅 Account age: {Math.round(githubValidation.account_age_days / 30)}mo</div>
+                                        </div>
+                                        {githubValidation.analysis_summary && (
+                                            <p className="text-sm text-muted-foreground">{githubValidation.analysis_summary}</p>
+                                        )}
+                                        {githubValidation.positive_indicators.length > 0 && (
+                                            <div>
+                                                <p className="text-xs font-semibold text-muted-foreground mb-1">Positive Indicators</p>
+                                                <ul className="space-y-1">
+                                                    {githubValidation.positive_indicators.slice(0, 3).map((pi, i) => (
+                                                        <li key={i} className="flex items-start gap-2 text-sm">
+                                                            <CheckCircle className="h-3 w-3 text-success mt-0.5 flex-shrink-0" />
+                                                            {pi}
+                                                        </li>
+                                                    ))}
+                                                </ul>
+                                            </div>
+                                        )}
+                                        {githubValidation.red_flags.length > 0 && (
+                                            <div>
+                                                <p className="text-xs font-semibold text-muted-foreground mb-1">Red Flags</p>
+                                                <ul className="space-y-1">
+                                                    {githubValidation.red_flags.map((rf, i) => (
+                                                        <li key={i} className="flex items-start gap-2 text-sm">
+                                                            <AlertTriangle className="h-3 w-3 text-destructive mt-0.5 flex-shrink-0" />
+                                                            {rf}
+                                                        </li>
+                                                    ))}
+                                                </ul>
+                                            </div>
+                                        )}
+                                    </div>
+                                </>
+                            )}
+                        </CardContent>
+                    </Card>
+                )}
 
                 <div className="grid gap-6 md:grid-cols-2">
                     {/* Skills & Experience */}

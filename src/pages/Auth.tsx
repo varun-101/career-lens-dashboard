@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Brain, Upload, IdCard, Clock } from "lucide-react";
+import { Brain, Upload, IdCard, Clock, Github } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
@@ -95,9 +95,20 @@ const Auth = () => {
   const handleSignUp = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (selectedRole === "applicant" && !govIdFile) {
-      toast.error("Please upload your government ID to continue");
-      return;
+    // ── Validation ──
+    if (selectedRole === "applicant") {
+      if (!govIdFile) {
+        toast.error("Please upload your government ID to continue");
+        return;
+      }
+      if (!resumeFile) {
+        toast.error("Please upload your resume to continue");
+        return;
+      }
+      if (!githubUsername.trim()) {
+        toast.error("GitHub username is required");
+        return;
+      }
     }
 
     setIsLoading(true);
@@ -137,7 +148,7 @@ const Auth = () => {
       if (data.user) {
         let govIdUrl: string | null = null;
 
-        // Upload government ID for applicants
+        // ── Upload Government ID (required for applicants) ──
         if (selectedRole === "applicant" && govIdFile) {
           const govIdExt = govIdFile.name.split(".").pop();
           const govIdPath = `${data.user.id}/${Date.now()}.${govIdExt}`;
@@ -156,23 +167,23 @@ const Auth = () => {
           }
         }
 
-        // Create profile (is_verified = false by default for applicants, true for HR)
+        // ── Create Profile ──
         await (supabase.from("profiles" as any) as any).insert({
           user_id: data.user.id,
           email,
           full_name: fullName,
           company_name: selectedRole === "hr" ? companyName : null,
           government_id_url: govIdUrl,
-          is_verified: selectedRole === "hr", // HR is auto-verified; applicants need admin approval
+          is_verified: selectedRole === "hr", // HR auto-verified; applicants need admin approval
         });
 
-        // Assign role
+        // ── Assign Role ──
         await (supabase.from("user_roles" as any) as any).insert({
           user_id: data.user.id,
           role: selectedRole,
         });
 
-        // For applicants, upload resume and create applicant record
+        // ── Upload Resume & save to library (required for applicants) ──
         if (selectedRole === "applicant" && resumeFile) {
           const fileExt = resumeFile.name.split(".").pop();
           const filePath = `${data.user.id}/${Date.now()}.${fileExt}`;
@@ -186,35 +197,39 @@ const Auth = () => {
               .from("resumes")
               .getPublicUrl(filePath);
 
-            // Create applicant record
+            const resumePublicUrl = urlData.publicUrl;
+
+            // ── Save to user_resumes library ──
+            await (supabase.from("user_resumes" as any) as any).insert({
+              user_id: data.user.id,
+              file_name: resumeFile.name,
+              resume_url: resumePublicUrl,
+            });
+
+            // ── Create applicant record ──
             await (supabase.from("applicants" as any) as any).insert({
               user_id: data.user.id,
               name: fullName,
               email,
               position: "General Application",
-              resume_url: urlData.publicUrl,
-              github_username: githubUsername || null,
+              resume_url: resumePublicUrl,
+              github_username: githubUsername.trim() || null,
               status: "pending",
             });
 
-            // Trigger resume analysis
-            try {
-              await supabase.functions.invoke("analyze-resume", {
-                body: {
-                  resumeUrl: urlData.publicUrl,
-                  applicantName: fullName,
-                  position: "General Application",
-                },
-              });
-            } catch (analysisError) {
-              console.error("Resume analysis error:", analysisError);
-            }
+            // ── Trigger resume analysis (non-blocking) ──
+            supabase.functions.invoke("analyze-resume", {
+              body: {
+                resumeUrl: resumePublicUrl,
+                applicantName: fullName,
+                position: "General Application",
+              },
+            }).catch((err) => console.error("Resume analysis error:", err));
           }
         }
 
         if (selectedRole === "hr") {
           toast.success("Account created! Redirecting to your HR dashboard...");
-          // Sign in immediately since HR is auto-verified
           const { data: signInData } = await supabase.auth.signInWithPassword({ email, password });
           if (signInData.user) {
             navigate("/dashboard");
@@ -315,7 +330,7 @@ const Auth = () => {
 
                 {selectedRole === "applicant" && (
                   <>
-                    {/* Government ID upload — required */}
+                    {/* Government ID — required */}
                     <div className="space-y-2">
                       <Label htmlFor="govId">
                         Government ID <span className="text-destructive">*</span>
@@ -345,16 +360,20 @@ const Auth = () => {
                       </div>
                     </div>
 
-                    {/* Resume upload — optional */}
+                    {/* Resume — required */}
                     <div className="space-y-2">
-                      <Label htmlFor="resume">Resume (PDF) — Optional</Label>
+                      <Label htmlFor="resume">
+                        Resume (PDF) <span className="text-destructive">*</span>
+                      </Label>
                       <div
                         onClick={() => fileInputRef.current?.click()}
-                        className="flex items-center gap-2 border border-input rounded-md px-3 py-2 cursor-pointer hover:bg-muted/50 transition-colors"
+                        className={`flex items-center gap-2 border rounded-md px-3 py-2 cursor-pointer hover:bg-muted/50 transition-colors ${
+                          resumeFile ? "border-primary" : "border-input"
+                        }`}
                       >
-                        <Upload className="h-4 w-4 text-muted-foreground" />
-                        <span className="text-sm text-muted-foreground">
-                          {resumeFile ? resumeFile.name : "Upload your resume"}
+                        <Upload className={`h-4 w-4 ${resumeFile ? "text-primary" : "text-muted-foreground"}`} />
+                        <span className={`text-sm ${resumeFile ? "text-foreground" : "text-muted-foreground"}`}>
+                          {resumeFile ? resumeFile.name : "Upload your resume (required)"}
                         </span>
                       </div>
                       <input
@@ -365,17 +384,30 @@ const Auth = () => {
                         className="hidden"
                         onChange={(e) => setResumeFile(e.target.files?.[0] || null)}
                       />
+                      <p className="text-xs text-muted-foreground">
+                        Saved to your resume library — choose it when applying to jobs.
+                      </p>
                     </div>
 
+                    {/* GitHub username — required */}
                     <div className="space-y-2">
-                      <Label htmlFor="github">GitHub Username (Optional)</Label>
-                      <Input
-                        id="github"
-                        type="text"
-                        placeholder="johndoe"
-                        value={githubUsername}
-                        onChange={(e) => setGithubUsername(e.target.value)}
-                      />
+                      <Label htmlFor="github">
+                        GitHub Username <span className="text-destructive">*</span>
+                      </Label>
+                      <div className="relative">
+                        <Github className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                        <Input
+                          id="github"
+                          type="text"
+                          placeholder="johndoe"
+                          value={githubUsername}
+                          onChange={(e) => setGithubUsername(e.target.value)}
+                          className="pl-9"
+                        />
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        Cross-validated against your resume during applications.
+                      </p>
                     </div>
                   </>
                 )}

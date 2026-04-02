@@ -1,5 +1,4 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -15,6 +14,49 @@ interface ResumeAnalysis {
   strengths: string[];
   weaknesses: string[];
   recommendations: string[];
+  extracted_github_username: string | null;
+}
+
+/**
+ * Extract a GitHub *profile* username from a raw URL string.
+ * - Profile URL:    github.com/username          → returns "username"
+ * - Repo URL:       github.com/username/repo     → returns null (repo, not profile)
+ * - Other URLs / paths with 3+ segments → null
+ */
+function extractGithubProfileUsername(url: string): string | null {
+  try {
+    // Normalise: add scheme if missing so URL() can parse it
+    const normalised = url.startsWith("http") ? url : `https://${url}`;
+    const parsed = new URL(normalised);
+    if (!parsed.hostname.replace("www.", "").startsWith("github.com")) return null;
+
+    // pathname is like "/username" or "/username/repo" or "/username/repo/..."
+    const segments = parsed.pathname.split("/").filter(Boolean);
+
+    // Only a single segment → profile page
+    if (segments.length === 1) return segments[0];
+
+    return null; // repo or deeper link
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Extract any GitHub URL mentions from raw resume text using regex,
+ * then filter down to profile-level URLs only.
+ */
+function extractGithubFromText(text: string): string | null {
+  // Match any github.com/... token in text
+  const regex = /(?:https?:\/\/)?(?:www\.)?github\.com\/([A-Za-z0-9_.-]+(?:\/[A-Za-z0-9_.-]+)*)/gi;
+  const matches = [...text.matchAll(regex)];
+
+  for (const match of matches) {
+    const fullUrl = match[0];
+    const username = extractGithubProfileUsername(fullUrl);
+    if (username) return username;
+  }
+  return null;
 }
 
 serve(async (req) => {
@@ -23,7 +65,7 @@ serve(async (req) => {
   }
 
   try {
-    const { resumeText, position, applicantName } = await req.json();
+    const { resumeText, position, applicantName, jobRequirements } = await req.json();
 
     if (!resumeText) {
       return new Response(
@@ -31,6 +73,9 @@ serve(async (req) => {
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
+
+    // ── Fast path: extract GitHub from raw text before sending to AI ──
+    const textExtractedGithub = extractGithubFromText(resumeText);
 
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) {
@@ -40,6 +85,10 @@ serve(async (req) => {
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
+
+    const requirementsText = Array.isArray(jobRequirements) && jobRequirements.length > 0
+      ? `\nJob Requirements:\n${jobRequirements.map((r: string) => `- ${r}`).join("\n")}`
+      : "";
 
     const systemPrompt = `You are an expert HR analyst and resume evaluator. Analyze the provided resume and return a detailed JSON analysis.
 
@@ -52,8 +101,9 @@ Your analysis should include:
 6. Strengths (array of 3-5 points)
 7. Weaknesses or areas for improvement (array of 2-4 points)
 8. Hiring recommendations (array of 2-3 actionable suggestions)
+9. extracted_github_username: scan the resume text for any GitHub profile URL (github.com/<username> with NO further path segments — repository links like github.com/user/repo should NOT be treated as a profile). Return only the username string, or null if nothing is found.
 
-Consider the target position when evaluating relevance of skills and experience.`;
+Consider the target position when evaluating relevance of skills and experience.${requirementsText}`;
 
     const userPrompt = `Analyze this resume for the position of "${position || "General Application"}".
 
@@ -71,7 +121,8 @@ Return your analysis as a valid JSON object with this exact structure:
   "summary": "Brief summary of candidate",
   "strengths": ["strength1", "strength2", ...],
   "weaknesses": ["weakness1", "weakness2", ...],
-  "recommendations": ["recommendation1", "recommendation2", ...]
+  "recommendations": ["recommendation1", "recommendation2", ...],
+  "extracted_github_username": "username" | null
 }`;
 
     console.log("Calling AI gateway for resume analysis...");
@@ -83,7 +134,7 @@ Return your analysis as a valid JSON object with this exact structure:
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "google/gemini-3-flash-preview",
+        model: "google/gemini-2.5-flash",
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt },
@@ -95,14 +146,14 @@ Return your analysis as a valid JSON object with this exact structure:
     if (!response.ok) {
       const errorText = await response.text();
       console.error("AI gateway error:", response.status, errorText);
-      
+
       if (response.status === 429) {
         return new Response(
           JSON.stringify({ error: "Rate limit exceeded. Please try again later." }),
           { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
-      
+
       if (response.status === 402) {
         return new Response(
           JSON.stringify({ error: "AI credits exhausted. Please add credits to continue." }),
@@ -129,8 +180,7 @@ Return your analysis as a valid JSON object with this exact structure:
     // Parse the JSON from the AI response
     let analysis: ResumeAnalysis;
     try {
-      // Try to extract JSON from the response (handle markdown code blocks)
-      const jsonMatch = content.match(/```json\n?([\s\S]*?)\n?```/) || 
+      const jsonMatch = content.match(/```json\n?([\s\S]*?)\n?```/) ||
                         content.match(/```\n?([\s\S]*?)\n?```/) ||
                         [null, content];
       const jsonStr = jsonMatch[1] || content;
@@ -143,7 +193,9 @@ Return your analysis as a valid JSON object with this exact structure:
       );
     }
 
-    // Validate and normalize the analysis
+    // Prefer AI-extracted username; fall back to regex extraction
+    const finalGithubUsername = analysis.extracted_github_username || textExtractedGithub || null;
+
     const normalizedAnalysis: ResumeAnalysis = {
       score: Math.min(100, Math.max(0, analysis.score || 50)),
       status: analysis.status || (analysis.score >= 85 ? "excellent" : analysis.score >= 70 ? "good" : analysis.score >= 50 ? "average" : "poor"),
@@ -153,9 +205,14 @@ Return your analysis as a valid JSON object with this exact structure:
       strengths: Array.isArray(analysis.strengths) ? analysis.strengths : [],
       weaknesses: Array.isArray(analysis.weaknesses) ? analysis.weaknesses : [],
       recommendations: Array.isArray(analysis.recommendations) ? analysis.recommendations : [],
+      extracted_github_username: finalGithubUsername,
     };
 
-    console.log("Resume analysis complete:", { score: normalizedAnalysis.score, status: normalizedAnalysis.status });
+    console.log("Resume analysis complete:", {
+      score: normalizedAnalysis.score,
+      status: normalizedAnalysis.status,
+      extracted_github: normalizedAnalysis.extracted_github_username,
+    });
 
     return new Response(
       JSON.stringify({ success: true, analysis: normalizedAnalysis }),

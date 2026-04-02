@@ -137,8 +137,8 @@ export const JobPostingCard = ({ job, onUpdate, onViewApplications }: JobPosting
                     )}
                     {job.salary_range && (
                         <div className="flex items-center gap-2 text-muted-foreground">
-                            <DollarSign className="h-4 w-4" />
-                            <span>{job.salary_range}</span>
+                            {/* <DollarSign className="h-4 w-4" /> */}
+                            <span>₹  {job.salary_range}</span>
                         </div>
                     )}
                     <div className="flex items-center gap-2 text-muted-foreground">
