@@ -30,11 +30,12 @@ import { Download, FileText, LogOut, Search, TrendingUp, Users, Github, Shield, 
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
-import { AddApplicantDialog } from "@/components/AddApplicantDialog";
+
 import { AnalyticsCharts } from "@/components/AnalyticsCharts";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CreateJobDialog } from "@/components/CreateJobDialog";
 import { JobPostingCard } from "@/components/JobPostingCard";
+import { WhatIfSimulator } from "@/components/WhatIfSimulator";
 
 interface ResumeAnalysis {
   score?: number;
@@ -377,7 +378,7 @@ const Dashboard = () => {
 
         {/* Tabbed Content */}
         <Tabs defaultValue="applicants" className="space-y-6">
-          <TabsList className="grid w-full max-w-2xl grid-cols-3">
+          <TabsList className="grid w-full max-w-2xl grid-cols-4">
             <TabsTrigger value="applicants" className="gap-2">
               <Users className="h-4 w-4" />
               Applicants
@@ -389,6 +390,10 @@ const Dashboard = () => {
             <TabsTrigger value="jobs" className="gap-2">
               <Briefcase className="h-4 w-4" />
               Job Postings
+            </TabsTrigger>
+            <TabsTrigger value="simulator" className="gap-2">
+              <TrendingUp className="h-4 w-4" />
+              What If
             </TabsTrigger>
           </TabsList>
 
@@ -402,7 +407,6 @@ const Dashboard = () => {
                     <CardDescription>AI-powered resume screening results</CardDescription>
                   </div>
                   <div className="flex gap-2">
-                    <AddApplicantDialog onApplicantAdded={fetchApplicants} />
                     <Button onClick={exportToCSV} variant="outline" className="gap-2">
                       <Download className="h-4 w-4" />
                       Export CSV
@@ -630,6 +634,19 @@ const Dashboard = () => {
                   ))}
                 </div>
               )}
+            </div>
+          </TabsContent>
+
+          {/* What-If Simulator Tab */}
+          <TabsContent value="simulator">
+            <div className="space-y-6">
+              <div>
+                <h2 className="text-2xl font-bold">What-If Simulator</h2>
+                <p className="text-muted-foreground">
+                  Adjust scoring weights to see how candidate rankings change in real time — no API calls needed.
+                </p>
+              </div>
+              <WhatIfSimulator applicants={applicants} />
             </div>
           </TabsContent>
         </Tabs>

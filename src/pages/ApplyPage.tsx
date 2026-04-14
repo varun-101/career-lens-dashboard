@@ -10,6 +10,14 @@ import { Separator } from "@/components/ui/separator";
 import { Progress } from "@/components/ui/progress";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
   Briefcase,
   MapPin,
   DollarSign,
@@ -18,10 +26,10 @@ import {
   Upload,
   FileText,
   AlertCircle,
-  Github,
   BookOpen,
   AlertTriangle,
-  Clock,
+  Lock,
+  Github,
 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
@@ -67,20 +75,22 @@ const ApplyPage = () => {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
-  const [githubUsername, setGithubUsername] = useState("");
   const [coverLetter, setCoverLetter] = useState("");
   const [resumeFile, setResumeFile] = useState<File | null>(null);
 
-  // GitHub cross-validation warning
-  const [githubMismatchWarning, setGithubMismatchWarning] = useState<string | null>(null);
-
+  // GitHub Fallback Flow
+  const [showGithubFallback, setShowGithubFallback] = useState(false);
+  const [fallbackGithub, setFallbackGithub] = useState("");
+  const [fallbackLoading, setFallbackLoading] = useState(false);
+  const [pendingAnalysisData, setPendingAnalysisData] = useState<any>(null);
+  const [pendingResumeUrl, setPendingResumeUrl] = useState<string | null>(null);
+  const [pendingResumeId, setPendingResumeId] = useState<string | null>(null);
   // Prefill form for logged-in users
   useEffect(() => {
     if (user) {
       setEmail(user.email ?? "");
       const meta = user.user_metadata;
       if (meta?.full_name) setName(meta.full_name);
-      if (meta?.github_username) setGithubUsername(meta.github_username);
     }
   }, [user]);
 
@@ -137,7 +147,7 @@ const ApplyPage = () => {
   const extractTextFromFile = async (file: File): Promise<string> => {
     if (file.type === "text/plain") return await file.text();
     if (file.type === "application/pdf") {
-      return `Resume file: ${file.name}\nSize: ${(file.size / 1024).toFixed(2)} KB\n\nNote: PDF text extraction would run here. Applicant-provided GitHub: ${githubUsername || "none"}.`;
+      return `Resume file: ${file.name}\nSize: ${(file.size / 1024).toFixed(2)} KB\n\nNote: PDF text extraction would run here.`;
     }
     return await file.text();
   };
@@ -160,11 +170,6 @@ const ApplyPage = () => {
     e.preventDefault();
 
     // ── Validation ──
-    if (!githubUsername.trim()) {
-      toast.error("GitHub username is required");
-      return;
-    }
-
     const usingLibraryResume = resumeChoice === "library" && selectedResumeId;
     const usingNewFile = resumeChoice === "new" && resumeFile;
 
@@ -179,7 +184,6 @@ const ApplyPage = () => {
 
     setSubmitting(true);
     setProgress(0);
-    setGithubMismatchWarning(null);
 
     try {
       // Step 1: Duplicate check
@@ -248,7 +252,7 @@ const ApplyPage = () => {
       let resumeText: string;
       if (usingLibraryResume) {
         // For library resumes we pass the URL as context; AI will work on what it can parse
-        resumeText = `Resume URL: ${resumeUrl}\nApplicant: ${name}\nGitHub (provided): ${githubUsername}`;
+        resumeText = `Resume URL: ${resumeUrl}\nApplicant: ${name}`;
       } else {
         resumeText = await extractTextFromFile(resumeFile!);
       }
@@ -271,42 +275,89 @@ const ApplyPage = () => {
 
       if (analysisError) {
         toast.error("Failed to analyse resume");
+        setSubmitting(false);
         return;
       }
 
       const analysis = analysisData?.analysis;
       const extractedGithub: string | null = analysis?.extracted_github_username ?? null;
 
-      // ── GitHub cross-validation ──
-      const providedGithub = githubUsername.trim().toLowerCase();
-      const extractedLower = extractedGithub?.toLowerCase() ?? null;
-
-      let matchStatus: string = "none";
-      if (providedGithub && extractedLower) {
-        matchStatus = providedGithub === extractedLower ? "match" : "mismatch";
-        if (matchStatus === "mismatch") {
-          setGithubMismatchWarning(
-            `The GitHub username you entered ("${githubUsername}") differs from the one found in your resume ("${extractedGithub}"). We'll validate the username you provided.`
-          );
-        }
-      } else if (providedGithub) {
-        matchStatus = "provided_only";
-      } else if (extractedLower) {
-        matchStatus = "extracted_only";
+      if (!extractedGithub) {
+        // Pause flow and ask user for GitHub via prompt
+        setPendingAnalysisData(analysis);
+        setPendingResumeUrl(resumeUrl);
+        setPendingResumeId(resumeId);
+        setCurrentStep("Waiting for GitHub profile...");
+        setShowGithubFallback(true);
+        // Do NOT set submitting(false) here, we resume the flow inside the dialog handler
+        return;
       }
 
-      // Step 5: GitHub validation (automatic)
+      await completeValidationAndSubmit(analysis, extractedGithub, resumeUrl, resumeId);
+    } catch (error) {
+      console.error("Application error:", error);
+      toast.error("An error occurred while submitting your application");
+      setSubmitting(false);
+      setProgress(0);
+      setCurrentStep("");
+    }
+  };
+
+  const handleFallbackSubmit = async (providedGithub: string | null) => {
+    setShowGithubFallback(false);
+    setFallbackLoading(true);
+    
+    // Resume the process with the provided string (or null if skipped)
+    try {
+      await completeValidationAndSubmit(
+        pendingAnalysisData, 
+        providedGithub, // using the raw provided string
+        pendingResumeUrl, 
+        pendingResumeId
+      );
+    } catch (error) {
+       // Error handled inside completeValidationAndSubmit, but catch any outliers
+       console.error(error);
+       setSubmitting(false);
+       setProgress(0);
+       setCurrentStep("");
+    } finally {
+      setFallbackLoading(false);
+      // clean up pending refs
+      setPendingAnalysisData(null);
+      setPendingResumeUrl(null);
+      setPendingResumeId(null);
+    }
+  };
+
+  const completeValidationAndSubmit = async (
+    analysis: any, 
+    githubInput: string | null, 
+    resumeUrl: string | null, 
+    resumeId: string | null
+  ) => {
+    try {
+      // Clean up the github input if it's a full URL
+      let cleanGithub = githubInput;
+      if (cleanGithub && cleanGithub.includes("github.com/")) {
+        const parts = cleanGithub.split("github.com/");
+        cleanGithub = parts[1].split(/[/?#]/)[0];
+      }
+      cleanGithub = cleanGithub?.trim() || null;
+
+      // ── GitHub validation status ──
+      const matchStatus: string = cleanGithub ? "provided_only" : "none";
+
+      // Step 5: GitHub validation
       setCurrentStep("Validating GitHub profile...");
       setProgress(68);
 
       let githubValidationId: string | null = null;
-      const githubToValidate = providedGithub || extractedLower;
-
-      if (githubToValidate) {
+      if (cleanGithub) {
         try {
           const { data: ghData } = await supabase.functions.invoke("validate-github", {
             body: {
-              githubUsername: githubToValidate,
+              githubUsername: cleanGithub,
               applicantName: name,
             },
           });
@@ -329,9 +380,9 @@ const ApplyPage = () => {
           user_id: user?.id ?? null,
           name,
           email,
-          position: job.title,
-          github_username: githubUsername.trim() || null,
-          github_extracted_username: extractedGithub,
+          position: job?.title,
+          github_username: cleanGithub, // store the username used for tracking
+          github_extracted_username: analysis?.extracted_github_username ?? null, // original AI extraction (usually null here if fallback triggered)
           github_match_status: matchStatus,
           github_validation_id: githubValidationId,
           resume_url: resumeUrl,
@@ -349,6 +400,7 @@ const ApplyPage = () => {
         } else {
           toast.error("Failed to submit application");
         }
+        setSubmitting(false);
         return;
       }
 
@@ -358,9 +410,8 @@ const ApplyPage = () => {
       toast.success("Application submitted successfully!");
       navigate("/apply/success");
     } catch (error) {
-      console.error("Application error:", error);
+      console.error("Application completion error:", error);
       toast.error("An error occurred while submitting your application");
-    } finally {
       setSubmitting(false);
       setProgress(0);
       setCurrentStep("");
@@ -397,6 +448,34 @@ const ApplyPage = () => {
             <AlertCircle className="h-12 w-12 text-warning mx-auto mb-4" />
             <h2 className="text-2xl font-bold mb-2">Position Closed</h2>
             <p className="text-muted-foreground">This position is no longer accepting applications.</p>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  // ── Login gate: only applicants may apply ──
+  if (!user) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background p-4">
+        <Card className="max-w-md w-full shadow-elevated">
+          <CardContent className="pt-8 pb-6 text-center space-y-4">
+            <div className="flex justify-center">
+              <div className="rounded-full bg-primary/10 p-4">
+                <Lock className="h-10 w-10 text-primary" />
+              </div>
+            </div>
+            <h2 className="text-2xl font-bold">Log in to Apply</h2>
+            <p className="text-muted-foreground text-sm">
+              You must be signed in as an applicant to submit an application for{" "}
+              <span className="font-semibold text-foreground">{job.title}</span>.
+            </p>
+            <Button
+              className="w-full gap-2"
+              onClick={() => navigate(`/auth?redirectTo=/apply/${jobId}`)}
+            >
+              Sign in / Create account
+            </Button>
           </CardContent>
         </Card>
       </div>
@@ -505,38 +584,16 @@ const ApplyPage = () => {
                     />
                   </div>
                 </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="phone">Phone Number</Label>
-                    <Input
-                      id="phone"
-                      type="tel"
-                      value={phone}
-                      onChange={(e) => setPhone(e.target.value)}
-                      placeholder="+91 98765 43210"
-                      disabled={submitting}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="github">
-                      GitHub Username <span className="text-destructive">*</span>
-                    </Label>
-                    <div className="relative">
-                      <Github className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                      <Input
-                        id="github"
-                        value={githubUsername}
-                        onChange={(e) => setGithubUsername(e.target.value)}
-                        placeholder="johndoe"
-                        disabled={submitting}
-                        className="pl-9"
-                        required
-                      />
-                    </div>
-                    <p className="text-xs text-muted-foreground">
-                      Your GitHub profile URL — also extracted from resume and cross-validated.
-                    </p>
-                  </div>
+                <div className="space-y-2">
+                  <Label htmlFor="phone">Phone Number</Label>
+                  <Input
+                    id="phone"
+                    type="tel"
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value)}
+                    placeholder="+91 98765 43210"
+                    disabled={submitting}
+                  />
                 </div>
               </div>
 
@@ -649,22 +706,10 @@ const ApplyPage = () => {
                         {resumeFile.name}
                       </div>
                     )}
-                    {!user && (
-                      <p className="text-xs text-muted-foreground flex items-center gap-1">
-                        <Clock className="h-3 w-3" />
-                        Sign in to save resumes to your library and reuse them.
-                      </p>
-                    )}
                   </div>
                 )}
 
-                {/* GitHub mismatch warning (shown after previous failed submission) */}
-                {githubMismatchWarning && (
-                  <div className="flex items-start gap-2 p-3 rounded-md bg-warning/10 border border-warning/30 text-sm text-warning-foreground">
-                    <AlertTriangle className="h-4 w-4 text-warning mt-0.5 flex-shrink-0" />
-                    <span>{githubMismatchWarning}</span>
-                  </div>
-                )}
+
               </div>
 
               <Separator />
@@ -710,6 +755,60 @@ const ApplyPage = () => {
           </CardContent>
         </Card>
       </div>
+
+      {/* GitHub Fallback Dialog */}
+      <Dialog 
+        open={showGithubFallback} 
+        onOpenChange={(open) => {
+          if (!open) {
+            // If user closes by clicking outside, we count that as a skip (or they can resume by pressing apply again)
+            handleFallbackSubmit(null);
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Github className="h-5 w-5" />
+              GitHub Profile Missing
+            </DialogTitle>
+            <DialogDescription>
+              We couldn't automatically extract a GitHub profile link from your resume. 
+              Adding your GitHub profile helps us validate your technical skills and code contributions.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4">
+            <div className="space-y-2">
+              <Label htmlFor="fallback-github">GitHub Username or URL</Label>
+              <Input
+                id="fallback-github"
+                value={fallbackGithub}
+                onChange={(e) => setFallbackGithub(e.target.value)}
+                placeholder="johndoe or github.com/johndoe"
+                disabled={fallbackLoading}
+                autoFocus
+              />
+            </div>
+          </div>
+          <DialogFooter className="flex sm:justify-between items-center w-full">
+            <Button
+              variant="ghost"
+              onClick={() => handleFallbackSubmit(null)}
+              disabled={fallbackLoading}
+              className="text-muted-foreground mr-auto"
+            >
+              Skip
+            </Button>
+            <Button 
+              onClick={() => handleFallbackSubmit(fallbackGithub)}
+              disabled={fallbackLoading || !fallbackGithub.trim()}
+            >
+              {fallbackLoading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+              Submit Application
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

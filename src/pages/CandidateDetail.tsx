@@ -19,10 +19,14 @@ import {
     FileText,
     GitBranch,
     Info,
+    RefreshCw,
 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { EffortVsClaimChart } from "@/components/EffortVsClaimChart";
+import { ResumeTimelineChart } from "@/components/ResumeTimelineChart";
 
 interface ResumeAnalysis {
     score?: number;
@@ -33,6 +37,13 @@ interface ResumeAnalysis {
     strengths?: string[];
     weaknesses?: string[];
     recommendations?: string[];
+    timeline?: Array<{
+        type: "education" | "job" | "project";
+        title: string;
+        start: string;
+        end: string;
+        description: string;
+    }>;
 }
 
 interface GitHubValidation {
@@ -70,6 +81,7 @@ const CandidateDetail = () => {
     const [applicant, setApplicant] = useState<Applicant | null>(null);
     const [loading, setLoading] = useState(true);
     const [githubValidation, setGithubValidation] = useState<GitHubValidation | null>(null);
+    const [isReanalysing, setIsReanalysing] = useState(false);
 
     useEffect(() => {
         if (!authLoading && !user) {
@@ -224,6 +236,97 @@ const CandidateDetail = () => {
         }
     };
 
+    const handleReanalyse = async () => {
+        if (!applicant?.resume_url || !applicant?.id) return;
+        setIsReanalysing(true);
+
+        try {
+            // Step 1: Get a signed URL to fetch the resume file
+            const signedUrl = await getSignedResumeUrl(applicant.resume_url);
+            if (!signedUrl) {
+                toast.error("Could not access resume file");
+                return;
+            }
+
+            // Step 2: Fetch the file and extract text
+            const fileRes = await fetch(signedUrl);
+            if (!fileRes.ok) {
+                toast.error("Failed to fetch resume file");
+                return;
+            }
+
+            // Try to read as text — works well for text/plain, gives partial content for PDFs
+            const blob = await fileRes.blob();
+            let resumeText: string;
+            try {
+                resumeText = await blob.text();
+            } catch {
+                resumeText = `Resume file for ${applicant.name} (binary file, text extraction unavailable)`;
+            }
+
+            // Step 3: Call analyze-resume edge function
+            const { data: analysisData, error: analysisError } = await supabase.functions.invoke(
+                "analyze-resume",
+                {
+                    body: {
+                        resumeText,
+                        position: applicant.position,
+                        applicantName: applicant.name,
+                    },
+                }
+            );
+
+            if (analysisError || !analysisData?.analysis) {
+                toast.error("Re-analysis failed — the old analysis has been kept");
+                return;
+            }
+
+            const newAnalysis = analysisData.analysis;
+
+            // Step 4: Update the DB record (only on success)
+            const { error: updateError } = await (supabase
+                .from("applicants" as any) as any)
+                .update({
+                    resume_analysis: newAnalysis,
+                    ai_score: newAnalysis.score ?? applicant.ai_score,
+                    status: newAnalysis.status ?? applicant.status,
+                    experience: newAnalysis.experience ?? applicant.experience,
+                    skills: newAnalysis.skills ?? applicant.skills,
+                    github_extracted_username: newAnalysis.extracted_github_username ?? applicant.github_extracted_username,
+                })
+                .eq("id", applicant.id);
+
+            if (updateError) {
+                console.error("DB update error:", updateError);
+                toast.error("Re-analysis complete but failed to save — please try again");
+                return;
+            }
+
+            // Step 5: Update local state immediately (no page reload)
+            setApplicant((prev) =>
+                prev
+                    ? {
+                          ...prev,
+                          resume_analysis: newAnalysis,
+                          ai_score: newAnalysis.score ?? prev.ai_score,
+                          status: newAnalysis.status ?? prev.status,
+                          experience: newAnalysis.experience ?? prev.experience,
+                          skills: newAnalysis.skills ?? prev.skills,
+                          github_extracted_username:
+                              newAnalysis.extracted_github_username ?? prev.github_extracted_username,
+                      }
+                    : prev
+            );
+
+            toast.success("Resume re-analysed successfully!");
+        } catch (error) {
+            console.error("Re-analysis error:", error);
+            toast.error("An unexpected error occurred during re-analysis");
+        } finally {
+            setIsReanalysing(false);
+        }
+    };
+
     if (authLoading || loading) {
         return (
             <div className="min-h-screen flex items-center justify-center bg-background">
@@ -315,7 +418,7 @@ const CandidateDetail = () => {
                                     </p>
                                 </div>
                                 {applicant.resume_url && (
-                                    <div className="flex gap-2">
+                                    <div className="flex flex-wrap gap-2">
                                         <Button
                                             variant="outline"
                                             onClick={handleViewResume}
@@ -327,6 +430,24 @@ const CandidateDetail = () => {
                                         <Button onClick={handleDownloadResume} className="gap-2">
                                             <Download className="h-4 w-4" />
                                             Download
+                                        </Button>
+                                        <Button
+                                            variant="outline"
+                                            onClick={handleReanalyse}
+                                            disabled={isReanalysing}
+                                            className="gap-2 border-primary/40 text-primary hover:bg-primary/10"
+                                        >
+                                            {isReanalysing ? (
+                                                <>
+                                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                                    Re-analysing...
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <RefreshCw className="h-4 w-4" />
+                                                    Re-analyse
+                                                </>
+                                            )}
                                         </Button>
                                     </div>
                                 )}
@@ -461,7 +582,16 @@ const CandidateDetail = () => {
                     </Card>
                 )}
 
-                <div className="grid gap-6 md:grid-cols-2">
+                <Tabs defaultValue="analysis" className="space-y-4">
+                    <TabsList className="grid w-full max-w-lg grid-cols-3">
+                        <TabsTrigger value="analysis">Analysis</TabsTrigger>
+                        <TabsTrigger value="effort">Effort vs Claim</TabsTrigger>
+                        <TabsTrigger value="timeline">Timeline</TabsTrigger>
+                    </TabsList>
+
+                    {/* Analysis Tab — existing cards */}
+                    <TabsContent value="analysis">
+                        <div className="grid gap-6 md:grid-cols-2">
                     {/* Skills & Experience */}
                     <Card className="shadow-soft border-border">
                         <CardHeader>
@@ -505,7 +635,7 @@ const CandidateDetail = () => {
                     )}
 
                     {/* Strengths */}
-                    {applicant.resume_analysis?.strengths && applicant.resume_analysis.strengths.length > 0 && (
+                    {applicant.resume_analysis?.strengths && applicant.resume_analysis.strengths.length > 0 ? (
                         <Card className="shadow-soft border-border">
                             <CardHeader>
                                 <CardTitle className="flex items-center gap-2">
@@ -525,10 +655,24 @@ const CandidateDetail = () => {
                                 </ul>
                             </CardContent>
                         </Card>
+                    ) : (
+                        applicant.resume_analysis && (
+                            <Card className="shadow-soft border-border">
+                                <CardHeader>
+                                    <CardTitle className="flex items-center gap-2">
+                                        <CheckCircle className="h-5 w-5 text-muted-foreground" />
+                                        Strengths
+                                    </CardTitle>
+                                </CardHeader>
+                                <CardContent>
+                                    <p className="text-muted-foreground text-sm italic">No notable strengths identified from this resume.</p>
+                                </CardContent>
+                            </Card>
+                        )
                     )}
 
                     {/* Weaknesses */}
-                    {applicant.resume_analysis?.weaknesses && applicant.resume_analysis.weaknesses.length > 0 && (
+                    {applicant.resume_analysis?.weaknesses && applicant.resume_analysis.weaknesses.length > 0 ? (
                         <Card className="shadow-soft border-border">
                             <CardHeader>
                                 <CardTitle className="flex items-center gap-2">
@@ -548,6 +692,20 @@ const CandidateDetail = () => {
                                 </ul>
                             </CardContent>
                         </Card>
+                    ) : (
+                        applicant.resume_analysis && (
+                            <Card className="shadow-soft border-border">
+                                <CardHeader>
+                                    <CardTitle className="flex items-center gap-2">
+                                        <AlertTriangle className="h-5 w-5 text-muted-foreground" />
+                                        Areas for Improvement
+                                    </CardTitle>
+                                </CardHeader>
+                                <CardContent>
+                                    <p className="text-muted-foreground text-sm italic">No specific areas for improvement identified.</p>
+                                </CardContent>
+                            </Card>
+                        )
                     )}
 
                     {/* Recommendations */}
@@ -571,7 +729,39 @@ const CandidateDetail = () => {
                             </CardContent>
                         </Card>
                     )}
-                </div>
+                        </div>
+                    </TabsContent>
+
+                    {/* Effort vs Claim Tab */}
+                    <TabsContent value="effort">
+                        <Card className="shadow-soft border-border">
+                            <CardHeader>
+                                <CardTitle>Effort vs Claim</CardTitle>
+                                <CardDescription>
+                                    How well are the candidate's claimed skills backed by evidence in their resume?
+                                </CardDescription>
+                            </CardHeader>
+                            <CardContent>
+                                <EffortVsClaimChart analysis={applicant.resume_analysis ?? {}} />
+                            </CardContent>
+                        </Card>
+                    </TabsContent>
+
+                    {/* Timeline Tab */}
+                    <TabsContent value="timeline">
+                        <Card className="shadow-soft border-border">
+                            <CardHeader>
+                                <CardTitle>Career Timeline</CardTitle>
+                                <CardDescription>
+                                    Education, work history, and projects extracted from the resume. Gaps highlighted automatically.
+                                </CardDescription>
+                            </CardHeader>
+                            <CardContent>
+                                <ResumeTimelineChart timeline={applicant.resume_analysis?.timeline ?? []} />
+                            </CardContent>
+                        </Card>
+                    </TabsContent>
+                </Tabs>
             </main>
         </div>
     );

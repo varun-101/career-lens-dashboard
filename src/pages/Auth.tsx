@@ -3,8 +3,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Brain, Upload, IdCard, Clock, Github } from "lucide-react";
-import { Link, useNavigate } from "react-router-dom";
+import { Brain, Upload, IdCard } from "lucide-react";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 
@@ -15,7 +15,6 @@ const Auth = () => {
   const [password, setPassword] = useState("");
   const [fullName, setFullName] = useState("");
   const [companyName, setCompanyName] = useState("");
-  const [githubUsername, setGithubUsername] = useState("");
   const [resumeFile, setResumeFile] = useState<File | null>(null);
   const [govIdFile, setGovIdFile] = useState<File | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -24,6 +23,8 @@ const Auth = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const govIdInputRef = useRef<HTMLInputElement>(null);
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const redirectTo = searchParams.get("redirectTo") ?? null;
 
   // On mount, check if already logged in
   useEffect(() => {
@@ -48,19 +49,12 @@ const Auth = () => {
     } else if (roleData?.role === "hr") {
       navigate("/dashboard");
     } else {
-      // Applicant — check verification
-      const { data: profileData } = await (supabase.from("profiles" as any) as any)
-        .select("is_verified")
-        .eq("user_id", userId)
-        .single();
-
-      if (profileData?.is_verified === false) {
-        // Sign them out and show pending message
-        await supabase.auth.signOut();
-        toast.warning("Your account is pending admin verification. Please wait for approval.");
-        return;
+      // Applicant — redirect to original destination or dashboard
+      if (redirectTo) {
+        navigate(redirectTo);
+      } else {
+        navigate("/applicant-dashboard");
       }
-      navigate("/applicant-dashboard");
     }
   };
 
@@ -95,18 +89,10 @@ const Auth = () => {
   const handleSignUp = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    // ── Validation ──
+    // ── Validation ── (resume is still required for applicants; gov-ID is now optional)
     if (selectedRole === "applicant") {
-      if (!govIdFile) {
-        toast.error("Please upload your government ID to continue");
-        return;
-      }
       if (!resumeFile) {
         toast.error("Please upload your resume to continue");
-        return;
-      }
-      if (!githubUsername.trim()) {
-        toast.error("GitHub username is required");
         return;
       }
     }
@@ -122,9 +108,6 @@ const Auth = () => {
       };
       if (selectedRole === "hr") {
         metadata.company_name = companyName;
-      }
-      if (selectedRole === "applicant" && githubUsername) {
-        metadata.github_username = githubUsername;
       }
 
       const { data, error } = await supabase.auth.signUp({
@@ -148,7 +131,7 @@ const Auth = () => {
       if (data.user) {
         let govIdUrl: string | null = null;
 
-        // ── Upload Government ID (required for applicants) ──
+        // ── Upload Government ID (optional for applicants) ──
         if (selectedRole === "applicant" && govIdFile) {
           const govIdExt = govIdFile.name.split(".").pop();
           const govIdPath = `${data.user.id}/${Date.now()}.${govIdExt}`;
@@ -167,14 +150,14 @@ const Auth = () => {
           }
         }
 
-        // ── Create Profile ──
+        // ── Create Profile ── (applicants are auto-verified; gov-ID status tracked via government_id_url)
         await (supabase.from("profiles" as any) as any).insert({
           user_id: data.user.id,
           email,
           full_name: fullName,
           company_name: selectedRole === "hr" ? companyName : null,
           government_id_url: govIdUrl,
-          is_verified: selectedRole === "hr", // HR auto-verified; applicants need admin approval
+          is_verified: true, // all accounts auto-verified; gov-ID upload is optional
         });
 
         // ── Assign Role ──
@@ -205,45 +188,16 @@ const Auth = () => {
               file_name: resumeFile.name,
               resume_url: resumePublicUrl,
             });
-
-            // ── Create applicant record ──
-            await (supabase.from("applicants" as any) as any).insert({
-              user_id: data.user.id,
-              name: fullName,
-              email,
-              position: "General Application",
-              resume_url: resumePublicUrl,
-              github_username: githubUsername.trim() || null,
-              status: "pending",
-            });
-
-            // ── Trigger resume analysis (non-blocking) ──
-            supabase.functions.invoke("analyze-resume", {
-              body: {
-                resumeUrl: resumePublicUrl,
-                applicantName: fullName,
-                position: "General Application",
-              },
-            }).catch((err) => console.error("Resume analysis error:", err));
           }
         }
 
-        if (selectedRole === "hr") {
-          toast.success("Account created! Redirecting to your HR dashboard...");
-          const { data: signInData } = await supabase.auth.signInWithPassword({ email, password });
-          if (signInData.user) {
-            navigate("/dashboard");
-          } else {
-            toast.info("Please sign in with your new account.");
-            setIsSignUp(false);
-          }
+        // ── Auto sign-in for both HR and applicants ──
+        toast.success("Account created! Signing you in...");
+        const { data: signInData } = await supabase.auth.signInWithPassword({ email, password });
+        if (signInData.user) {
+          await redirectByRole(signInData.user.id);
         } else {
-          // Applicant — account needs admin approval
-          await supabase.auth.signOut();
-          toast.success(
-            "Account created! Your government ID will be reviewed. You'll be able to log in once an admin approves your account.",
-            { duration: 8000 }
-          );
+          toast.info("Please sign in with your new account.");
           setIsSignUp(false);
         }
       }
@@ -330,10 +284,11 @@ const Auth = () => {
 
                 {selectedRole === "applicant" && (
                   <>
-                    {/* Government ID — required */}
+                    {/* Government ID — optional */}
                     <div className="space-y-2">
                       <Label htmlFor="govId">
-                        Government ID <span className="text-destructive">*</span>
+                        Government ID{" "}
+                        <span className="text-muted-foreground text-xs">(optional — can be added later)</span>
                       </Label>
                       <div
                         onClick={() => govIdInputRef.current?.click()}
@@ -343,7 +298,7 @@ const Auth = () => {
                       >
                         <IdCard className={`h-4 w-4 ${govIdFile ? "text-primary" : "text-muted-foreground"}`} />
                         <span className={`text-sm ${govIdFile ? "text-foreground" : "text-muted-foreground"}`}>
-                          {govIdFile ? govIdFile.name : "Upload Aadhaar / PAN / Passport (required)"}
+                          {govIdFile ? govIdFile.name : "Upload Aadhaar / PAN / Passport (optional)"}
                         </span>
                       </div>
                       <input
@@ -354,10 +309,6 @@ const Auth = () => {
                         className="hidden"
                         onChange={(e) => setGovIdFile(e.target.files?.[0] || null)}
                       />
-                      <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                        <Clock className="h-3 w-3" />
-                        <span>Your account will be reviewed by an admin before you can log in.</span>
-                      </div>
                     </div>
 
                     {/* Resume — required */}
@@ -386,27 +337,6 @@ const Auth = () => {
                       />
                       <p className="text-xs text-muted-foreground">
                         Saved to your resume library — choose it when applying to jobs.
-                      </p>
-                    </div>
-
-                    {/* GitHub username — required */}
-                    <div className="space-y-2">
-                      <Label htmlFor="github">
-                        GitHub Username <span className="text-destructive">*</span>
-                      </Label>
-                      <div className="relative">
-                        <Github className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                        <Input
-                          id="github"
-                          type="text"
-                          placeholder="johndoe"
-                          value={githubUsername}
-                          onChange={(e) => setGithubUsername(e.target.value)}
-                          className="pl-9"
-                        />
-                      </div>
-                      <p className="text-xs text-muted-foreground">
-                        Cross-validated against your resume during applications.
                       </p>
                     </div>
                   </>

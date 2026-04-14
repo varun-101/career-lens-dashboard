@@ -5,7 +5,16 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+interface TimelineEntry {
+  type: "education" | "job" | "project";
+  title: string;
+  start: string;
+  end: string;
+  description: string;
+}
+
 interface ResumeAnalysis {
+  is_resume: boolean;
   score: number;
   status: "excellent" | "good" | "average" | "poor";
   experience: string;
@@ -15,28 +24,22 @@ interface ResumeAnalysis {
   weaknesses: string[];
   recommendations: string[];
   extracted_github_username: string | null;
+  timeline: TimelineEntry[];
 }
 
 /**
  * Extract a GitHub *profile* username from a raw URL string.
  * - Profile URL:    github.com/username          → returns "username"
  * - Repo URL:       github.com/username/repo     → returns null (repo, not profile)
- * - Other URLs / paths with 3+ segments → null
  */
 function extractGithubProfileUsername(url: string): string | null {
   try {
-    // Normalise: add scheme if missing so URL() can parse it
     const normalised = url.startsWith("http") ? url : `https://${url}`;
     const parsed = new URL(normalised);
     if (!parsed.hostname.replace("www.", "").startsWith("github.com")) return null;
-
-    // pathname is like "/username" or "/username/repo" or "/username/repo/..."
     const segments = parsed.pathname.split("/").filter(Boolean);
-
-    // Only a single segment → profile page
     if (segments.length === 1) return segments[0];
-
-    return null; // repo or deeper link
+    return null;
   } catch {
     return null;
   }
@@ -47,10 +50,8 @@ function extractGithubProfileUsername(url: string): string | null {
  * then filter down to profile-level URLs only.
  */
 function extractGithubFromText(text: string): string | null {
-  // Match any github.com/... token in text
   const regex = /(?:https?:\/\/)?(?:www\.)?github\.com\/([A-Za-z0-9_.-]+(?:\/[A-Za-z0-9_.-]+)*)/gi;
   const matches = [...text.matchAll(regex)];
-
   for (const match of matches) {
     const fullUrl = match[0];
     const username = extractGithubProfileUsername(fullUrl);
@@ -90,40 +91,88 @@ serve(async (req) => {
       ? `\nJob Requirements:\n${jobRequirements.map((r: string) => `- ${r}`).join("\n")}`
       : "";
 
-    const systemPrompt = `You are an expert HR analyst and resume evaluator. Analyze the provided resume and return a detailed JSON analysis.
+    const systemPrompt = `You are an expert HR analyst and resume evaluator. Analyze the provided document and return a detailed JSON analysis.
+
+CRITICAL STEP 1 — DOCUMENT VALIDATION:
+First, determine if this document is actually a resume or CV. A genuine resume/CV contains:
+- Personal details (name, contact info)
+- Education history
+- Work experience
+- Skills relevant to employment
+
+If the document is NOT a resume (e.g., research papers, academic reports, textbooks, social media analytics, marketing documents, product documentation, unrelated articles, or any non-resume content), you MUST immediately return:
+{
+  "is_resume": false,
+  "score": 0,
+  "status": "poor",
+  "experience": "N/A",
+  "skills": [],
+  "summary": "This document does not appear to be a resume or CV. It cannot be evaluated as a job application.",
+  "strengths": [],
+  "weaknesses": ["This document is not a resume and cannot be evaluated for hiring purposes."],
+  "recommendations": ["Ask the applicant to submit a proper resume or CV."],
+  "extracted_github_username": null,
+  "timeline": []
+}
+
+CRITICAL STEP 2 — IF IT IS A RESUME, BE BRUTALLY HONEST:
+- Set "is_resume": true
+- Score based ONLY on what is actually in the document. Do NOT be generous.
+- NEVER fabricate strengths. Only list strengths that are DIRECTLY SUPPORTED BY EVIDENCE in the resume text.
+- NEVER fabricate weaknesses. Only list real gaps or concerns clearly visible in the resume.
+- If you cannot find genuine strengths, return "strengths": []
+- If you cannot find genuine weaknesses, return "weaknesses": []
+- Strengths must cite specific evidence (e.g., "Led a team of 5 — demonstrated leadership")
+- A poor resume with no real strengths should get "strengths": []
+- Score generously only for well-documented, relevant, quantified achievements
 
 Your analysis should include:
-1. Overall score (0-100) based on qualifications, experience, and presentation
-2. Status classification: "excellent" (85+), "good" (70-84), "average" (50-69), "poor" (<50)
-3. Years of experience extracted from the resume
-4. Key skills identified (return as array)
-5. Brief summary of the candidate
-6. Strengths (array of 3-5 points)
-7. Weaknesses or areas for improvement (array of 2-4 points)
-8. Hiring recommendations (array of 2-3 actionable suggestions)
-9. extracted_github_username: scan the resume text for any GitHub profile URL (github.com/<username> with NO further path segments — repository links like github.com/user/repo should NOT be treated as a profile). Return only the username string, or null if nothing is found.
+1. is_resume: true or false (ALWAYS include this)
+2. Overall score (0-100) — only high if resume is genuinely strong
+3. Status: "excellent" (85+), "good" (70-84), "average" (50-69), "poor" (<50)
+4. Years of experience extracted from resume
+5. Key skills — only if explicitly mentioned or clearly evidenced
+6. Brief honest summary of the candidate
+7. Strengths — only evidence-backed, can be empty []
+8. Weaknesses/areas for improvement — only real gaps, can be empty []
+9. Hiring recommendations — 0-3 actionable items
+10. extracted_github_username — github.com/<username> profile only (not repo links), or null
+11. timeline — array of career/education/project entries in chronological order
 
-Consider the target position when evaluating relevance of skills and experience.${requirementsText}`;
+Consider the target position when evaluating.${requirementsText}`;
 
-    const userPrompt = `Analyze this resume for the position of "${position || "General Application"}".
+    const userPrompt = `Analyze this document for the position of "${position || "General Application"}".
 
 Applicant Name: ${applicantName}
 
-Resume Content:
+Document Content:
 ${resumeText}
 
-Return your analysis as a valid JSON object with this exact structure:
+Return your analysis as a valid JSON object with this EXACT structure:
 {
+  "is_resume": true | false,
   "score": number,
   "status": "excellent" | "good" | "average" | "poor",
   "experience": "X years",
-  "skills": ["skill1", "skill2", ...],
-  "summary": "Brief summary of candidate",
-  "strengths": ["strength1", "strength2", ...],
-  "weaknesses": ["weakness1", "weakness2", ...],
-  "recommendations": ["recommendation1", "recommendation2", ...],
-  "extracted_github_username": "username" | null
-}`;
+  "skills": ["skill1", "skill2"],
+  "summary": "Honest summary",
+  "strengths": ["evidence-backed strength1"],
+  "weaknesses": ["real weakness1"],
+  "recommendations": ["recommendation1"],
+  "extracted_github_username": "username" | null,
+  "timeline": [
+    {
+      "type": "education" | "job" | "project",
+      "title": "Degree / Job title / Project name",
+      "start": "YYYY-MM",
+      "end": "YYYY-MM" | "present",
+      "description": "Brief description"
+    }
+  ]
+}
+
+REMINDER: If not a resume → is_resume: false, score: 0, all arrays empty.
+REMINDER: Only include strengths/weaknesses that are DIRECTLY EVIDENCED in the text.`;
 
     console.log("Calling AI gateway for resume analysis...");
 
@@ -139,7 +188,7 @@ Return your analysis as a valid JSON object with this exact structure:
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt },
         ],
-        temperature: 0.3,
+        temperature: 0.2,
       }),
     });
 
@@ -193,12 +242,38 @@ Return your analysis as a valid JSON object with this exact structure:
       );
     }
 
+    // ── Non-resume rejection gate ──
+    if (analysis.is_resume === false) {
+      console.log("Document rejected: not a resume.");
+      const rejectedAnalysis: ResumeAnalysis = {
+        is_resume: false,
+        score: 0,
+        status: "poor",
+        experience: "N/A",
+        skills: [],
+        summary: "This document does not appear to be a resume or CV and cannot be evaluated for hiring purposes.",
+        strengths: [],
+        weaknesses: ["Document is not a resume — cannot be used for hiring evaluation."],
+        recommendations: ["Request a proper resume or CV from the applicant."],
+        extracted_github_username: null,
+        timeline: [],
+      };
+      return new Response(
+        JSON.stringify({ success: true, analysis: rejectedAnalysis }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
     // Prefer AI-extracted username; fall back to regex extraction
     const finalGithubUsername = analysis.extracted_github_username || textExtractedGithub || null;
 
+    const score = Math.min(100, Math.max(0, analysis.score || 0));
+    const status = analysis.status || (score >= 85 ? "excellent" : score >= 70 ? "good" : score >= 50 ? "average" : "poor");
+
     const normalizedAnalysis: ResumeAnalysis = {
-      score: Math.min(100, Math.max(0, analysis.score || 50)),
-      status: analysis.status || (analysis.score >= 85 ? "excellent" : analysis.score >= 70 ? "good" : analysis.score >= 50 ? "average" : "poor"),
+      is_resume: true,
+      score,
+      status,
       experience: analysis.experience || "Not specified",
       skills: Array.isArray(analysis.skills) ? analysis.skills : [],
       summary: analysis.summary || "No summary available",
@@ -206,12 +281,15 @@ Return your analysis as a valid JSON object with this exact structure:
       weaknesses: Array.isArray(analysis.weaknesses) ? analysis.weaknesses : [],
       recommendations: Array.isArray(analysis.recommendations) ? analysis.recommendations : [],
       extracted_github_username: finalGithubUsername,
+      timeline: Array.isArray(analysis.timeline) ? analysis.timeline : [],
     };
 
     console.log("Resume analysis complete:", {
+      is_resume: normalizedAnalysis.is_resume,
       score: normalizedAnalysis.score,
       status: normalizedAnalysis.status,
       extracted_github: normalizedAnalysis.extracted_github_username,
+      timeline_entries: normalizedAnalysis.timeline.length,
     });
 
     return new Response(
