@@ -20,6 +20,8 @@ export type Database = {
           created_at: string
           email: string
           experience: string | null
+          github_extracted_username: string | null
+          github_match_status: string | null
           github_username: string | null
           github_validation_id: string | null
           id: string
@@ -27,6 +29,7 @@ export type Database = {
           name: string
           position: string
           resume_analysis: Json | null
+          resume_id: string | null
           resume_url: string | null
           skills: string[] | null
           status: string | null
@@ -38,6 +41,8 @@ export type Database = {
           created_at?: string
           email: string
           experience?: string | null
+          github_extracted_username?: string | null
+          github_match_status?: string | null
           github_username?: string | null
           github_validation_id?: string | null
           id?: string
@@ -45,6 +50,7 @@ export type Database = {
           name: string
           position: string
           resume_analysis?: Json | null
+          resume_id?: string | null
           resume_url?: string | null
           skills?: string[] | null
           status?: string | null
@@ -56,6 +62,8 @@ export type Database = {
           created_at?: string
           email?: string
           experience?: string | null
+          github_extracted_username?: string | null
+          github_match_status?: string | null
           github_username?: string | null
           github_validation_id?: string | null
           id?: string
@@ -63,6 +71,7 @@ export type Database = {
           name?: string
           position?: string
           resume_analysis?: Json | null
+          resume_id?: string | null
           resume_url?: string | null
           skills?: string[] | null
           status?: string | null
@@ -82,6 +91,13 @@ export type Database = {
             columns: ["job_posting_id"]
             isOneToOne: false
             referencedRelation: "job_postings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "applicants_resume_id_fkey"
+            columns: ["resume_id"]
+            isOneToOne: false
+            referencedRelation: "user_resumes"
             referencedColumns: ["id"]
           },
         ]
@@ -181,30 +197,63 @@ export type Database = {
       }
       profiles: {
         Row: {
+          admin_notes: string | null
           company_name: string | null
           created_at: string
           email: string | null
           full_name: string | null
+          government_id_url: string | null
           id: string
+          is_verified: boolean
           updated_at: string
           user_id: string
         }
         Insert: {
+          admin_notes?: string | null
           company_name?: string | null
           created_at?: string
           email?: string | null
           full_name?: string | null
+          government_id_url?: string | null
           id?: string
+          is_verified?: boolean
           updated_at?: string
           user_id: string
         }
         Update: {
+          admin_notes?: string | null
           company_name?: string | null
           created_at?: string
           email?: string | null
           full_name?: string | null
+          government_id_url?: string | null
           id?: string
+          is_verified?: boolean
           updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      user_resumes: {
+        Row: {
+          file_name: string
+          id: string
+          resume_url: string
+          uploaded_at: string
+          user_id: string
+        }
+        Insert: {
+          file_name: string
+          id?: string
+          resume_url: string
+          uploaded_at?: string
+          user_id: string
+        }
+        Update: {
+          file_name?: string
+          id?: string
+          resume_url?: string
+          uploaded_at?: string
           user_id?: string
         }
         Relationships: []
@@ -242,9 +291,10 @@ export type Database = {
         }
         Returns: boolean
       }
+      is_admin: { Args: { _user_id: string }; Returns: boolean }
     }
     Enums: {
-      app_role: "hr" | "applicant"
+      app_role: "hr" | "applicant" | "admin"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -372,7 +422,7 @@ export type CompositeTypes<
 export const Constants = {
   public: {
     Enums: {
-      app_role: ["hr", "applicant"],
+      app_role: ["hr", "applicant", "admin"],
     },
   },
 } as const
