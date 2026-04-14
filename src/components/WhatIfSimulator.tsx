@@ -176,7 +176,7 @@ export const WhatIfSimulator = ({ applicants }: WhatIfSimulatorProps) => {
 
         <div className="rounded-md bg-muted p-3 text-xs text-muted-foreground space-y-1">
           <p className="font-semibold text-foreground">How it works</p>
-          <p>Each slider sets the relative importance of that dimension. Rankings update immediately without any API calls.</p>
+          <p>Each slider sets the relative importance of that dimension. Rankings update immediately as you adjust.</p>
         </div>
       </div>
 
