@@ -260,12 +260,19 @@ const CandidateDetail = () => {
                 return;
             }
 
-            // Try to read as text — works well for text/plain, gives partial content for PDFs
+            // Try to read as text or extract PDF content
             const blob = await fileRes.blob();
             let resumeText: string;
             try {
-                resumeText = await blob.text();
-            } catch {
+                if (blob.type === "application/pdf" || applicant.resume_url?.toLowerCase().includes('.pdf')) {
+                    const { extractTextFromPdf } = await import("@/utils/pdfParser");
+                    resumeText = await extractTextFromPdf(blob);
+                    console.log("Resume text extracted:", resumeText);
+                } else {
+                    resumeText = await blob.text();
+                }
+            } catch (err) {
+                console.error("Text extraction failed:", err);
                 resumeText = `Resume file for ${applicant.name} (binary file, text extraction unavailable)`;
             }
 
@@ -311,15 +318,15 @@ const CandidateDetail = () => {
             setApplicant((prev) =>
                 prev
                     ? {
-                          ...prev,
-                          resume_analysis: newAnalysis,
-                          ai_score: newAnalysis.score ?? prev.ai_score,
-                          status: newAnalysis.status ?? prev.status,
-                          experience: newAnalysis.experience ?? prev.experience,
-                          skills: newAnalysis.skills ?? prev.skills,
-                          github_extracted_username:
-                              newAnalysis.extracted_github_username ?? prev.github_extracted_username,
-                      }
+                        ...prev,
+                        resume_analysis: newAnalysis,
+                        ai_score: newAnalysis.score ?? prev.ai_score,
+                        status: newAnalysis.status ?? prev.status,
+                        experience: newAnalysis.experience ?? prev.experience,
+                        skills: newAnalysis.skills ?? prev.skills,
+                        github_extracted_username:
+                            newAnalysis.extracted_github_username ?? prev.github_extracted_username,
+                    }
                     : prev
             );
 
@@ -542,7 +549,7 @@ const CandidateDetail = () => {
                                         <div className="flex items-center justify-between">
                                             <p className="text-sm font-semibold">Authenticity Score</p>
                                             <span className={`text-2xl font-bold ${githubValidation.authenticity_score >= 70 ? "text-success" :
-                                                    githubValidation.authenticity_score >= 50 ? "text-warning" : "text-destructive"
+                                                githubValidation.authenticity_score >= 50 ? "text-warning" : "text-destructive"
                                                 }`}>
                                                 {githubValidation.authenticity_score}%
                                             </span>
@@ -597,143 +604,143 @@ const CandidateDetail = () => {
                     {/* Analysis Tab — existing cards */}
                     <TabsContent value="analysis">
                         <div className="grid gap-6 md:grid-cols-2">
-                    {/* Skills & Experience */}
-                    <Card className="shadow-soft border-border">
-                        <CardHeader>
-                            <CardTitle>Skills & Experience</CardTitle>
-                        </CardHeader>
-                        <CardContent className="space-y-4">
-                            <div>
-                                <h4 className="font-semibold mb-2">Experience</h4>
-                                <p className="text-muted-foreground">
-                                    {applicant.experience || applicant.resume_analysis?.experience || "Not specified"}
-                                </p>
-                            </div>
-                            <Separator />
-                            <div>
-                                <h4 className="font-semibold mb-2">Skills</h4>
-                                <div className="flex flex-wrap gap-2">
-                                    {(applicant.skills || []).length > 0 ? (
-                                        applicant.skills.map((skill) => (
-                                            <Badge key={skill} variant="secondary">
-                                                {skill}
-                                            </Badge>
-                                        ))
-                                    ) : (
-                                        <p className="text-muted-foreground text-sm">No skills listed</p>
-                                    )}
-                                </div>
-                            </div>
-                        </CardContent>
-                    </Card>
-
-                    {/* Summary */}
-                    {applicant.resume_analysis?.summary && (
-                        <Card className="shadow-soft border-border">
-                            <CardHeader>
-                                <CardTitle>Summary</CardTitle>
-                            </CardHeader>
-                            <CardContent>
-                                <p className="text-muted-foreground">{applicant.resume_analysis.summary}</p>
-                            </CardContent>
-                        </Card>
-                    )}
-
-                    {/* Strengths */}
-                    {applicant.resume_analysis?.strengths && applicant.resume_analysis.strengths.length > 0 ? (
-                        <Card className="shadow-soft border-border">
-                            <CardHeader>
-                                <CardTitle className="flex items-center gap-2">
-                                    <CheckCircle className="h-5 w-5 text-success" />
-                                    Strengths
-                                </CardTitle>
-                                <CardDescription>Key positive indicators from resume analysis</CardDescription>
-                            </CardHeader>
-                            <CardContent>
-                                <ul className="space-y-3">
-                                    {applicant.resume_analysis.strengths.map((strength, i) => (
-                                        <li key={i} className="flex items-start gap-2">
-                                            <CheckCircle className="h-4 w-4 text-success mt-0.5 flex-shrink-0" />
-                                            <span className="text-muted-foreground">{strength}</span>
-                                        </li>
-                                    ))}
-                                </ul>
-                            </CardContent>
-                        </Card>
-                    ) : (
-                        applicant.resume_analysis && (
+                            {/* Skills & Experience */}
                             <Card className="shadow-soft border-border">
                                 <CardHeader>
-                                    <CardTitle className="flex items-center gap-2">
-                                        <CheckCircle className="h-5 w-5 text-muted-foreground" />
-                                        Strengths
-                                    </CardTitle>
+                                    <CardTitle>Skills & Experience</CardTitle>
                                 </CardHeader>
-                                <CardContent>
-                                    <p className="text-muted-foreground text-sm italic">No notable strengths identified from this resume.</p>
+                                <CardContent className="space-y-4">
+                                    <div>
+                                        <h4 className="font-semibold mb-2">Experience</h4>
+                                        <p className="text-muted-foreground">
+                                            {applicant.experience || applicant.resume_analysis?.experience || "Not specified"}
+                                        </p>
+                                    </div>
+                                    <Separator />
+                                    <div>
+                                        <h4 className="font-semibold mb-2">Skills</h4>
+                                        <div className="flex flex-wrap gap-2">
+                                            {(applicant.skills || []).length > 0 ? (
+                                                applicant.skills.map((skill) => (
+                                                    <Badge key={skill} variant="secondary">
+                                                        {skill}
+                                                    </Badge>
+                                                ))
+                                            ) : (
+                                                <p className="text-muted-foreground text-sm">No skills listed</p>
+                                            )}
+                                        </div>
+                                    </div>
                                 </CardContent>
                             </Card>
-                        )
-                    )}
 
-                    {/* Weaknesses */}
-                    {applicant.resume_analysis?.weaknesses && applicant.resume_analysis.weaknesses.length > 0 ? (
-                        <Card className="shadow-soft border-border">
-                            <CardHeader>
-                                <CardTitle className="flex items-center gap-2">
-                                    <AlertTriangle className="h-5 w-5 text-warning" />
-                                    Areas for Improvement
-                                </CardTitle>
-                                <CardDescription>Potential concerns or gaps identified</CardDescription>
-                            </CardHeader>
-                            <CardContent>
-                                <ul className="space-y-3">
-                                    {applicant.resume_analysis.weaknesses.map((weakness, i) => (
-                                        <li key={i} className="flex items-start gap-2">
-                                            <AlertTriangle className="h-4 w-4 text-warning mt-0.5 flex-shrink-0" />
-                                            <span className="text-muted-foreground">{weakness}</span>
-                                        </li>
-                                    ))}
-                                </ul>
-                            </CardContent>
-                        </Card>
-                    ) : (
-                        applicant.resume_analysis && (
-                            <Card className="shadow-soft border-border">
-                                <CardHeader>
-                                    <CardTitle className="flex items-center gap-2">
-                                        <AlertTriangle className="h-5 w-5 text-muted-foreground" />
-                                        Areas for Improvement
-                                    </CardTitle>
-                                </CardHeader>
-                                <CardContent>
-                                    <p className="text-muted-foreground text-sm italic">No specific areas for improvement identified.</p>
-                                </CardContent>
-                            </Card>
-                        )
-                    )}
+                            {/* Summary */}
+                            {applicant.resume_analysis?.summary && (
+                                <Card className="shadow-soft border-border">
+                                    <CardHeader>
+                                        <CardTitle>Summary</CardTitle>
+                                    </CardHeader>
+                                    <CardContent>
+                                        <p className="text-muted-foreground">{applicant.resume_analysis.summary}</p>
+                                    </CardContent>
+                                </Card>
+                            )}
 
-                    {/* Recommendations */}
-                    {applicant.resume_analysis?.recommendations && applicant.resume_analysis.recommendations.length > 0 && (
-                        <Card className="shadow-soft border-border md:col-span-2">
-                            <CardHeader>
-                                <CardTitle>Hiring Recommendations</CardTitle>
-                                <CardDescription>AI-generated suggestions for next steps</CardDescription>
-                            </CardHeader>
-                            <CardContent>
-                                <ol className="space-y-3">
-                                    {applicant.resume_analysis.recommendations.map((rec, i) => (
-                                        <li key={i} className="flex items-start gap-3">
-                                            <span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary text-primary-foreground text-sm font-bold flex-shrink-0">
-                                                {i + 1}
-                                            </span>
-                                            <span className="text-muted-foreground pt-0.5">{rec}</span>
-                                        </li>
-                                    ))}
-                                </ol>
-                            </CardContent>
-                        </Card>
-                    )}
+                            {/* Strengths */}
+                            {applicant.resume_analysis?.strengths && applicant.resume_analysis.strengths.length > 0 ? (
+                                <Card className="shadow-soft border-border">
+                                    <CardHeader>
+                                        <CardTitle className="flex items-center gap-2">
+                                            <CheckCircle className="h-5 w-5 text-success" />
+                                            Strengths
+                                        </CardTitle>
+                                        <CardDescription>Key positive indicators from resume analysis</CardDescription>
+                                    </CardHeader>
+                                    <CardContent>
+                                        <ul className="space-y-3">
+                                            {applicant.resume_analysis.strengths.map((strength, i) => (
+                                                <li key={i} className="flex items-start gap-2">
+                                                    <CheckCircle className="h-4 w-4 text-success mt-0.5 flex-shrink-0" />
+                                                    <span className="text-muted-foreground">{strength}</span>
+                                                </li>
+                                            ))}
+                                        </ul>
+                                    </CardContent>
+                                </Card>
+                            ) : (
+                                applicant.resume_analysis && (
+                                    <Card className="shadow-soft border-border">
+                                        <CardHeader>
+                                            <CardTitle className="flex items-center gap-2">
+                                                <CheckCircle className="h-5 w-5 text-muted-foreground" />
+                                                Strengths
+                                            </CardTitle>
+                                        </CardHeader>
+                                        <CardContent>
+                                            <p className="text-muted-foreground text-sm italic">No notable strengths identified from this resume.</p>
+                                        </CardContent>
+                                    </Card>
+                                )
+                            )}
+
+                            {/* Weaknesses */}
+                            {applicant.resume_analysis?.weaknesses && applicant.resume_analysis.weaknesses.length > 0 ? (
+                                <Card className="shadow-soft border-border">
+                                    <CardHeader>
+                                        <CardTitle className="flex items-center gap-2">
+                                            <AlertTriangle className="h-5 w-5 text-warning" />
+                                            Areas for Improvement
+                                        </CardTitle>
+                                        <CardDescription>Potential concerns or gaps identified</CardDescription>
+                                    </CardHeader>
+                                    <CardContent>
+                                        <ul className="space-y-3">
+                                            {applicant.resume_analysis.weaknesses.map((weakness, i) => (
+                                                <li key={i} className="flex items-start gap-2">
+                                                    <AlertTriangle className="h-4 w-4 text-warning mt-0.5 flex-shrink-0" />
+                                                    <span className="text-muted-foreground">{weakness}</span>
+                                                </li>
+                                            ))}
+                                        </ul>
+                                    </CardContent>
+                                </Card>
+                            ) : (
+                                applicant.resume_analysis && (
+                                    <Card className="shadow-soft border-border">
+                                        <CardHeader>
+                                            <CardTitle className="flex items-center gap-2">
+                                                <AlertTriangle className="h-5 w-5 text-muted-foreground" />
+                                                Areas for Improvement
+                                            </CardTitle>
+                                        </CardHeader>
+                                        <CardContent>
+                                            <p className="text-muted-foreground text-sm italic">No specific areas for improvement identified.</p>
+                                        </CardContent>
+                                    </Card>
+                                )
+                            )}
+
+                            {/* Recommendations */}
+                            {applicant.resume_analysis?.recommendations && applicant.resume_analysis.recommendations.length > 0 && (
+                                <Card className="shadow-soft border-border md:col-span-2">
+                                    <CardHeader>
+                                        <CardTitle>Hiring Recommendations</CardTitle>
+                                        <CardDescription>AI-generated suggestions for next steps</CardDescription>
+                                    </CardHeader>
+                                    <CardContent>
+                                        <ol className="space-y-3">
+                                            {applicant.resume_analysis.recommendations.map((rec, i) => (
+                                                <li key={i} className="flex items-start gap-3">
+                                                    <span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary text-primary-foreground text-sm font-bold flex-shrink-0">
+                                                        {i + 1}
+                                                    </span>
+                                                    <span className="text-muted-foreground pt-0.5">{rec}</span>
+                                                </li>
+                                            ))}
+                                        </ol>
+                                    </CardContent>
+                                </Card>
+                            )}
                         </div>
                     </TabsContent>
 

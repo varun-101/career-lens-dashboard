@@ -31,19 +31,16 @@ export const AddApplicantDialog = ({ onApplicantAdded }: AddApplicantDialogProps
   const [currentStep, setCurrentStep] = useState("");
 
   const extractTextFromFile = async (file: File): Promise<string> => {
-    // For now, we'll extract text from plain text files
-    // In production, you'd use a PDF parsing library or service
-    if (file.type === "text/plain") {
-      return await file.text();
-    }
-    
-    // For PDF and other files, we'll use the file name and basic info
-    // In a real implementation, you'd integrate a PDF parser
     if (file.type === "application/pdf") {
-      // Simulated text extraction - in production use pdf.js or server-side parsing
-      return `Resume file: ${file.name}\nSize: ${(file.size / 1024).toFixed(2)} KB\n\nNote: PDF parsing would extract full text content here. For demonstration, please use a .txt file with resume content, or the AI will analyze based on the applicant information provided.`;
+      const { extractTextFromPdf } = await import("@/utils/pdfParser");
+      try {
+        return await extractTextFromPdf(file);
+      } catch (error) {
+        console.error("PDF Parsing error:", error);
+        toast.error("Could not parse PDF content completely");
+        return `Resume file: ${file.name}\nSize: ${(file.size / 1024).toFixed(2)} KB\n\nNote: PDF parsing failed.`;
+      }
     }
-    
     return await file.text();
   };
 

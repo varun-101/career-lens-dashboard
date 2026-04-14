@@ -145,9 +145,15 @@ const ApplyPage = () => {
   }, [user]);
 
   const extractTextFromFile = async (file: File): Promise<string> => {
-    if (file.type === "text/plain") return await file.text();
     if (file.type === "application/pdf") {
-      return `Resume file: ${file.name}\nSize: ${(file.size / 1024).toFixed(2)} KB\n\nNote: PDF text extraction would run here.`;
+      const { extractTextFromPdf } = await import("@/utils/pdfParser");
+      try {
+        return await extractTextFromPdf(file);
+      } catch (error) {
+        console.error("PDF Parsing error:", error);
+        toast.error("Could not parse PDF content completely");
+        return `Resume file: ${file.name}\nSize: ${(file.size / 1024).toFixed(2)} KB\n\nNote: PDF parsing failed.`;
+      }
     }
     return await file.text();
   };
