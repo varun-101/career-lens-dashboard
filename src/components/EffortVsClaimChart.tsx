@@ -10,47 +10,22 @@ import {
   ReferenceLine,
 } from "recharts";
 
+interface EffortClaim {
+  skill: string;
+  evidence_score: number;
+  evidence_text: string;
+}
+
 interface ResumeAnalysis {
   skills?: string[];
   strengths?: string[];
   weaknesses?: string[];
   summary?: string;
+  effort_vs_claim?: EffortClaim[];
 }
 
 interface EffortVsClaimChartProps {
   analysis: ResumeAnalysis;
-}
-
-/**
- * Computes an "evidence score" (0–100) for each skill by checking
- * how many strengths/summary sentences mention or relate to that skill.
- */
-function computeEvidenceScore(skill: string, analysis: ResumeAnalysis): number {
-  const skillLower = skill.toLowerCase();
-  const haystack = [
-    ...(analysis.strengths ?? []),
-    analysis.summary ?? "",
-  ]
-    .join(" ")
-    .toLowerCase();
-
-  const weaknessHaystack = (analysis.weaknesses ?? []).join(" ").toLowerCase();
-
-  // Check for negative evidence (mentioned in weaknesses)
-  const inWeaknesses = weaknessHaystack.includes(skillLower);
-
-  // Partial keyword match in positive signals
-  let score = 0;
-  const words = skillLower.split(/[\s/+]+/);
-  for (const word of words) {
-    if (word.length < 3) continue;
-    if (haystack.includes(word)) score += 35;
-  }
-
-  if (inWeaknesses) score = Math.max(0, score - 40);
-
-  // Cap and normalize
-  return Math.min(90, score);
 }
 
 const ZONE_COLORS = {
@@ -73,7 +48,7 @@ function getZoneLabel(score: number) {
 
 interface CustomTooltipProps {
   active?: boolean;
-  payload?: Array<{ value: number; payload: { skill: string; evidenceScore: number } }>;
+  payload?: Array<{ value: number; payload: { skill: string; fullSkill: string; evidenceScore: number; evidenceText?: string } }>;
 }
 
 const CustomTooltip = ({ active, payload }: CustomTooltipProps) => {
@@ -82,17 +57,22 @@ const CustomTooltip = ({ active, payload }: CustomTooltipProps) => {
   const score = data.evidenceScore;
   return (
     <div className="bg-card border border-border rounded-lg p-3 shadow-elevated text-sm max-w-xs">
-      <p className="font-semibold text-foreground mb-1">{data.skill}</p>
-      <p className="text-muted-foreground">Evidence level: <span className="font-bold" style={{ color: getZoneColor(score) }}>{score}%</span></p>
-      <p className="text-xs mt-1" style={{ color: getZoneColor(score) }}>{getZoneLabel(score)}</p>
+      <p className="font-semibold text-foreground mb-1">{data.fullSkill}</p>
+      <p className="text-muted-foreground mb-1 mt-1">Evidence level: <span className="font-bold" style={{ color: getZoneColor(score) }}>{score}%</span></p>
+      <p className="text-xs font-semibold mb-2" style={{ color: getZoneColor(score) }}>{getZoneLabel(score)}</p>
+      {data.evidenceText && (
+        <p className="text-xs text-muted-foreground italic border-t border-border pt-2 mt-2">
+          "{data.evidenceText}"
+        </p>
+      )}
     </div>
   );
 };
 
 export const EffortVsClaimChart = ({ analysis }: EffortVsClaimChartProps) => {
-  const skills = (analysis.skills ?? []).slice(0, 12);
+  const effortData = analysis.effort_vs_claim ?? [];
 
-  if (skills.length === 0) {
+  if (effortData.length === 0) {
     return (
       <div className="flex items-center justify-center py-12 text-muted-foreground text-sm">
         No skills data available for this candidate.
@@ -100,10 +80,12 @@ export const EffortVsClaimChart = ({ analysis }: EffortVsClaimChartProps) => {
     );
   }
 
-  const chartData = skills.map((skill) => ({
-    skill: skill.length > 14 ? skill.slice(0, 13) + "…" : skill,
-    fullSkill: skill,
-    evidenceScore: computeEvidenceScore(skill, analysis),
+  // Map AI-generated data directly to the chart
+  const chartData = effortData.slice(0, 12).map((item) => ({
+    skill: item.skill.length > 14 ? item.skill.slice(0, 13) + "…" : item.skill,
+    fullSkill: item.skill,
+    evidenceScore: item.evidence_score,
+    evidenceText: item.evidence_text
   }));
 
   const riskyCount = chartData.filter((d) => d.evidenceScore < 25).length;
@@ -168,8 +150,7 @@ export const EffortVsClaimChart = ({ analysis }: EffortVsClaimChartProps) => {
       )}
 
       <p className="text-xs text-muted-foreground">
-        The evidence level is computed from resume analysis — strengths, summary, and weakness mentions.
-        It does <em>not</em> replace a manual review.
+        The evidence level is computed autonomously by our specialized AI engine. Hover over a bar to see the direct source evidence for each claimed skill.
       </p>
     </div>
   );

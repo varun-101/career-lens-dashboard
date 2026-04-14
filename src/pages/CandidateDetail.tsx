@@ -44,6 +44,11 @@ interface ResumeAnalysis {
         end: string;
         description: string;
     }>;
+    effort_vs_claim?: Array<{
+        skill: string;
+        evidence_score: number;
+        evidence_text: string;
+    }>;
 }
 
 interface GitHubValidation {

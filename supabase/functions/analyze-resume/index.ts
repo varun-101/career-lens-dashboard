@@ -13,6 +13,12 @@ interface TimelineEntry {
   description: string;
 }
 
+interface EffortClaim {
+  skill: string;
+  evidence_score: number;
+  evidence_text: string;
+}
+
 interface ResumeAnalysis {
   is_resume: boolean;
   score: number;
@@ -25,12 +31,11 @@ interface ResumeAnalysis {
   recommendations: string[];
   extracted_github_username: string | null;
   timeline: TimelineEntry[];
+  effort_vs_claim: EffortClaim[];
 }
 
 /**
  * Extract a GitHub *profile* username from a raw URL string.
- * - Profile URL:    github.com/username          → returns "username"
- * - Repo URL:       github.com/username/repo     → returns null (repo, not profile)
  */
 function extractGithubProfileUsername(url: string): string | null {
   try {
@@ -75,7 +80,6 @@ serve(async (req) => {
       );
     }
 
-    // ── Fast path: extract GitHub from raw text before sending to AI ──
     const textExtractedGithub = extractGithubFromText(resumeText);
 
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
@@ -91,7 +95,44 @@ serve(async (req) => {
       ? `\nJob Requirements:\n${jobRequirements.map((r: string) => `- ${r}`).join("\n")}`
       : "";
 
-    const systemPrompt = `You are an expert HR analyst and resume evaluator. Analyze the provided document and return a detailed JSON analysis.
+    // Helper to call AI API
+    async function callAI(systemMsg: string, userMsg: string) {
+      const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${LOVABLE_API_KEY}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: "google/gemini-2.5-flash",
+          messages: [
+            { role: "system", content: systemMsg },
+            { role: "user", content: userMsg },
+          ],
+          temperature: 0.2,
+        }),
+      });
+
+      if (!response.ok) {
+        if (response.status === 429) throw new Error("Rate limit exceeded. Please try again later.");
+        if (response.status === 402) throw new Error("AI credits exhausted. Please add credits to continue.");
+        const errText = await response.text();
+        throw new Error(`AI Gateway error: ${response.status} ${errText}`);
+      }
+
+      const data = await response.json();
+      const content = data.choices?.[0]?.message?.content;
+      if (!content) throw new Error("No analysis generated");
+
+      const jsonMatch = content.match(/```json\n?([\s\S]*?)\n?```/) ||
+        content.match(/```\n?([\s\S]*?)\n?```/) ||
+        [null, content];
+      const jsonStr = jsonMatch[1] || content;
+      return JSON.parse(jsonStr.trim());
+    }
+
+    // 1. General Analysis Prompt
+    const generalSystem = `You are an expert HR analyst and resume evaluator. Analyze the provided document and return a detailed JSON analysis.
 
 CRITICAL STEP 1 — DOCUMENT VALIDATION:
 First, determine if this document is actually a resume or CV. A genuine resume/CV contains:
@@ -100,150 +141,106 @@ First, determine if this document is actually a resume or CV. A genuine resume/C
 - Work experience
 - Skills relevant to employment
 
-If the document is NOT a resume (e.g., research papers, academic reports, textbooks, social media analytics, marketing documents, product documentation, unrelated articles, or any non-resume content), you MUST immediately return:
+If the document is NOT a resume (e.g., research papers, textbooks, marketing documents), immediately return:
 {
   "is_resume": false,
   "score": 0,
   "status": "poor",
   "experience": "N/A",
   "skills": [],
-  "summary": "This document does not appear to be a resume or CV. It cannot be evaluated as a job application.",
+  "summary": "This document does not appear to be a resume or CV.",
   "strengths": [],
-  "weaknesses": ["This document is not a resume and cannot be evaluated for hiring purposes."],
-  "recommendations": ["Ask the applicant to submit a proper resume or CV."],
-  "extracted_github_username": null,
-  "timeline": []
+  "weaknesses": ["This document is not a resume."],
+  "recommendations": ["Ask the applicant to submit a proper resume."],
+  "extracted_github_username": null
 }
 
-CRITICAL STEP 2 — IF IT IS A RESUME, BE BRUTALLY HONEST:
-- Set "is_resume": true
-- Score based ONLY on what is actually in the document. Do NOT be generous.
-- NEVER fabricate strengths. Only list strengths that are DIRECTLY SUPPORTED BY EVIDENCE in the resume text.
-- NEVER fabricate weaknesses. Only list real gaps or concerns clearly visible in the resume.
-- If you cannot find genuine strengths, return "strengths": []
-- If you cannot find genuine weaknesses, return "weaknesses": []
-- Strengths must cite specific evidence (e.g., "Led a team of 5 — demonstrated leadership")
-- A poor resume with no real strengths should get "strengths": []
-- Score generously only for well-documented, relevant, quantified achievements
+CRITICAL STEP 2 — IF IT IS A RESUME:
+- Be brutally honest. Do not fabricate strengths. Score based only on evidence.
+- Strengths must cite specific evidence from the text.
+- Weaknesses must be real skill gaps.
 
-Your analysis should include:
-1. is_resume: true or false (ALWAYS include this)
-2. Overall score (0-100) — only high if resume is genuinely strong
-3. Status: "excellent" (85+), "good" (70-84), "average" (50-69), "poor" (<50)
-4. Years of experience extracted from resume
-5. Key skills — only if explicitly mentioned or clearly evidenced
-6. Brief honest summary of the candidate
-7. Strengths — only evidence-backed, can be empty []
-8. Weaknesses/areas for improvement — only real gaps, can be empty []
-9. Hiring recommendations — 0-3 actionable items
-10. extracted_github_username — github.com/<username> profile only (not repo links), or null
-11. timeline — array of career/education/project entries in chronological order
-
-Consider the target position when evaluating.${requirementsText}`;
-
-    const userPrompt = `Analyze this document for the position of "${position || "General Application"}".
-
-Applicant Name: ${applicantName}
-
-Document Content:
-${resumeText}
-
-Return your analysis as a valid JSON object with this EXACT structure:
+Return JSON EXACTLY:
 {
   "is_resume": true | false,
-  "score": number,
+  "score": number (0-100),
   "status": "excellent" | "good" | "average" | "poor",
   "experience": "X years",
   "skills": ["skill1", "skill2"],
   "summary": "Honest summary",
-  "strengths": ["evidence-backed strength1"],
-  "weaknesses": ["real weakness1"],
-  "recommendations": ["recommendation1"],
-  "extracted_github_username": "username" | null,
+  "strengths": ["evidence-backed strength1", ...],
+  "weaknesses": ["real weakness1", ...],
+  "recommendations": ["recommendation1", ...],
+  "extracted_github_username": "username" | null
+}${requirementsText}`;
+
+    // 2. Effort vs Claim Prompt
+    const effortSystem = `You are an expert technical evaluator. Analyze the resume specifically for "Effort vs Claim" regarding the applicant's skills.
+    
+Task:
+1. Identify the core skills claimed by the applicant.
+2. Search the resume for HARD EVIDENCE of each skill (e.g., specific projects, years of use, complex outcomes).
+3. Compute an evidence_score from 0 to 100 representing how strongly evidenced the claim is. (100 = thoroughly proven, 0 = just a keyword drop with zero elaboration).
+4. Provide a brief evidence_text summarizing the proof found (or lack thereof).
+
+Return JSON EXACTLY:
+{
+  "effort_vs_claim": [
+    {
+      "skill": "Skill Name",
+      "evidence_score": 85,
+      "evidence_text": "Brief one sentence summary of evidence"
+    }
+  ]
+}`;
+
+    // 3. Timeline Extraction Prompt
+    const timelineSystem = `You are a temporal parsing expert. Extract the chronological timeline of the applicant's career, education, and projects from the resume.
+
+Task:
+Read the resume and build a comprehensive timeline array. Order from oldest to newest OR newest to oldest (as long as it covers their history). Catch overlaps and gaps.
+
+Return JSON EXACTLY:
+{
   "timeline": [
     {
       "type": "education" | "job" | "project",
       "title": "Degree / Job title / Project name",
       "start": "YYYY-MM",
       "end": "YYYY-MM" | "present",
-      "description": "Brief description"
+      "description": "Brief 1-2 sentence description"
     }
   ]
-}
+}`;
 
-REMINDER: If not a resume → is_resume: false, score: 0, all arrays empty.
-REMINDER: Only include strengths/weaknesses that are DIRECTLY EVIDENCED in the text.`;
+    const userPrompt = `Applicant Name: ${applicantName}
+Target Position: ${position || "General Application"}
 
-    console.log("Calling AI gateway for resume analysis...");
+Document Content:
+${resumeText}`;
 
-    const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${LOVABLE_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "google/gemini-2.5-flash",
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: userPrompt },
-        ],
-        temperature: 0.2,
+    console.log("Dispatching 3 parallel AI calls...");
+
+    // Execute in parallel but gracefully handle non-general promise failures
+    const [generalResult, effortResult, timelineResult] = await Promise.all([
+      callAI(generalSystem, userPrompt),
+      callAI(effortSystem, userPrompt).catch(err => {
+        console.error("Effort API failed:", err);
+        return { effort_vs_claim: [] };
       }),
-    });
+      callAI(timelineSystem, userPrompt).catch(err => {
+        console.error("Timeline API failed:", err);
+        return { timeline: [] };
+      })
+    ]);
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error("AI gateway error:", response.status, errorText);
+    console.log("General Result: ", generalResult);
+    console.log("Effort Result: ", effortResult);
+    console.log("Timeline Result: ", timelineResult);
 
-      if (response.status === 429) {
-        return new Response(
-          JSON.stringify({ error: "Rate limit exceeded. Please try again later." }),
-          { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
-      }
-
-      if (response.status === 402) {
-        return new Response(
-          JSON.stringify({ error: "AI credits exhausted. Please add credits to continue." }),
-          { status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
-      }
-
-      return new Response(
-        JSON.stringify({ error: "Failed to analyze resume" }),
-        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
-    const aiResponse = await response.json();
-    const content = aiResponse.choices?.[0]?.message?.content;
-
-    if (!content) {
-      return new Response(
-        JSON.stringify({ error: "No analysis generated" }),
-        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
-    // Parse the JSON from the AI response
-    let analysis: ResumeAnalysis;
-    try {
-      const jsonMatch = content.match(/```json\n?([\s\S]*?)\n?```/) ||
-                        content.match(/```\n?([\s\S]*?)\n?```/) ||
-                        [null, content];
-      const jsonStr = jsonMatch[1] || content;
-      analysis = JSON.parse(jsonStr.trim());
-    } catch (parseError) {
-      console.error("Failed to parse AI response:", parseError, content);
-      return new Response(
-        JSON.stringify({ error: "Failed to parse analysis results" }),
-        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
 
     // ── Non-resume rejection gate ──
-    if (analysis.is_resume === false) {
+    if (generalResult.is_resume === false) {
       console.log("Document rejected: not a resume.");
       const rejectedAnalysis: ResumeAnalysis = {
         is_resume: false,
@@ -257,6 +254,7 @@ REMINDER: Only include strengths/weaknesses that are DIRECTLY EVIDENCED in the t
         recommendations: ["Request a proper resume or CV from the applicant."],
         extracted_github_username: null,
         timeline: [],
+        effort_vs_claim: []
       };
       return new Response(
         JSON.stringify({ success: true, analysis: rejectedAnalysis }),
@@ -265,31 +263,30 @@ REMINDER: Only include strengths/weaknesses that are DIRECTLY EVIDENCED in the t
     }
 
     // Prefer AI-extracted username; fall back to regex extraction
-    const finalGithubUsername = analysis.extracted_github_username || textExtractedGithub || null;
+    const finalGithubUsername = generalResult.extracted_github_username || textExtractedGithub || null;
 
-    const score = Math.min(100, Math.max(0, analysis.score || 0));
-    const status = analysis.status || (score >= 85 ? "excellent" : score >= 70 ? "good" : score >= 50 ? "average" : "poor");
+    const score = Math.min(100, Math.max(0, generalResult.score || 0));
+    const status = generalResult.status || (score >= 85 ? "excellent" : score >= 70 ? "good" : score >= 50 ? "average" : "poor");
 
     const normalizedAnalysis: ResumeAnalysis = {
       is_resume: true,
       score,
       status,
-      experience: analysis.experience || "Not specified",
-      skills: Array.isArray(analysis.skills) ? analysis.skills : [],
-      summary: analysis.summary || "No summary available",
-      strengths: Array.isArray(analysis.strengths) ? analysis.strengths : [],
-      weaknesses: Array.isArray(analysis.weaknesses) ? analysis.weaknesses : [],
-      recommendations: Array.isArray(analysis.recommendations) ? analysis.recommendations : [],
+      experience: generalResult.experience || "Not specified",
+      skills: Array.isArray(generalResult.skills) ? generalResult.skills : [],
+      summary: generalResult.summary || "No summary available",
+      strengths: Array.isArray(generalResult.strengths) ? generalResult.strengths : [],
+      weaknesses: Array.isArray(generalResult.weaknesses) ? generalResult.weaknesses : [],
+      recommendations: Array.isArray(generalResult.recommendations) ? generalResult.recommendations : [],
       extracted_github_username: finalGithubUsername,
-      timeline: Array.isArray(analysis.timeline) ? analysis.timeline : [],
+      timeline: Array.isArray(timelineResult.timeline) ? timelineResult.timeline : [],
+      effort_vs_claim: Array.isArray(effortResult.effort_vs_claim) ? effortResult.effort_vs_claim : []
     };
 
     console.log("Resume analysis complete:", {
-      is_resume: normalizedAnalysis.is_resume,
       score: normalizedAnalysis.score,
-      status: normalizedAnalysis.status,
-      extracted_github: normalizedAnalysis.extracted_github_username,
       timeline_entries: normalizedAnalysis.timeline.length,
+      effort_claims: normalizedAnalysis.effort_vs_claim.length
     });
 
     return new Response(

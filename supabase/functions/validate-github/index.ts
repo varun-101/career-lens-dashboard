@@ -26,6 +26,42 @@ interface GitHubUser {
   following: number;
 }
 
+// Helper to fetch architecture details for a repo
+async function getRepoArchitecture(owner: string, repo: string) {
+  const headers = {
+    "Accept": "application/vnd.github.v3+json",
+    "User-Agent": "Resume-Analyzer"
+  };
+
+  let fileTree = "";
+  let readmeSnippet = "";
+
+  try {
+    // Fetch top level contents
+    const contentsRes = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents`, { headers });
+    if (contentsRes.ok) {
+      const contents = await contentsRes.json();
+      if (Array.isArray(contents)) {
+        fileTree = contents.map((c: any) => `- [${c.type.toUpperCase()}] ${c.name}`).join('\n');
+      }
+    }
+
+    // Fetch readme (raw text)
+    const readmeRes = await fetch(`https://api.github.com/repos/${owner}/${repo}/readme`, { 
+      headers: { ...headers, "Accept": "application/vnd.github.v3.raw" }
+    });
+    
+    if (readmeRes.ok) {
+      const text = await readmeRes.text();
+      readmeSnippet = text.substring(0, 800).replace(/\n+/g, ' ') + (text.length > 800 ? '...' : '');
+    }
+  } catch (err) {
+    console.warn(`Could not fetch arch for ${repo}:`, err);
+  }
+
+  return { fileTree, readmeSnippet };
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -127,6 +163,35 @@ serve(async (req) => {
       throw new Error("LOVABLE_API_KEY not configured");
     }
 
+    // Format repo details for the LLM
+    const sortedOriginalRepos = originalRepos
+      .sort((a, b) => b.stargazers_count - a.stargazers_count || new Date(b.pushed_at).getTime() - new Date(a.pushed_at).getTime());
+
+    const topOriginalReposInfo = sortedOriginalRepos
+      .slice(0, 10)
+      .map(r => `- ${r.name} (${r.language || 'No lang'}): Stars: ${r.stargazers_count}, Last push: ${new Date(r.pushed_at).toISOString().split('T')[0]}\n  Description: ${r.description ? r.description.substring(0, 100) : 'none'}`)
+      .join('\n');
+      
+    // Deep analysis of Top 2 repos
+    const top2OriginalRepos = sortedOriginalRepos.slice(0, 2);
+    let deepArchitectureData = "";
+    
+    if (top2OriginalRepos.length > 0) {
+      for (const repo of top2OriginalRepos) {
+        const arch = await getRepoArchitecture(githubUsername, repo.name);
+        deepArchitectureData += `Repository: ${repo.name}\n`;
+        deepArchitectureData += `File Structure (Root):\n${arch.fileTree || 'Unknown'}\n`;
+        deepArchitectureData += `README Excerpt:\n${arch.readmeSnippet || 'No README'}\n`;
+        deepArchitectureData += `-------------------\n`;
+      }
+    }
+
+    const recentForksInfo = forkedRepos
+      .sort((a, b) => new Date(b.pushed_at).getTime() - new Date(a.pushed_at).getTime())
+      .slice(0, 5)
+      .map(r => `- ${r.name}: Last push: ${new Date(r.pushed_at).toISOString().split('T')[0]}`)
+      .join('\n');
+
     const aiPrompt = `You are a technical recruiter analyzing a GitHub profile for authenticity. 
 
 Profile Data:
@@ -139,6 +204,15 @@ Profile Data:
 - Following: ${userData.following}
 - Recently Active Repos (last 6 months): ${recentlyActive}
 - Programming Languages: ${analysisContext.languages.join(", ") || "None detected"}
+
+Top Original Repositories (up to 10):
+${topOriginalReposInfo || "None"}
+
+Deep Architecture Analysis (Top 2 Repos):
+${deepArchitectureData || "None"}
+
+Recent Forked Repositories (up to 5):
+${recentForksInfo || "None"}
 
 Suspicious Indicators:
 - New account with many repos: ${suspiciouslyNewAccount}
