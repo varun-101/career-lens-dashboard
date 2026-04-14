@@ -66,6 +66,7 @@ function extractGithubFromText(text: string): string | null {
 }
 
 serve(async (req) => {
+  // Handle preflight CORS request
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
@@ -82,6 +83,7 @@ serve(async (req) => {
 
     const textExtractedGithub = extractGithubFromText(resumeText);
 
+    // Validate environment configuration
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) {
       console.error("LOVABLE_API_KEY is not configured");
@@ -91,6 +93,7 @@ serve(async (req) => {
       );
     }
 
+    // Format job requirements for the AI prompt
     const requirementsText = Array.isArray(jobRequirements) && jobRequirements.length > 0
       ? `\nJob Requirements:\n${jobRequirements.map((r: string) => `- ${r}`).join("\n")}`
       : "";
@@ -124,6 +127,7 @@ serve(async (req) => {
       const content = data.choices?.[0]?.message?.content;
       if (!content) throw new Error("No analysis generated");
 
+      // Extract JSON from markdown code blocks if present
       const jsonMatch = content.match(/```json\n?([\s\S]*?)\n?```/) ||
         content.match(/```\n?([\s\S]*?)\n?```/) ||
         [null, content];
@@ -221,7 +225,7 @@ ${resumeText}`;
 
     console.log("Dispatching 3 parallel AI calls...");
 
-    // Execute in parallel but gracefully handle non-general promise failures
+    // Execute all three AI analyses in parallel with graceful error handling
     const [generalResult, effortResult, timelineResult] = await Promise.all([
       callAI(generalSystem, userPrompt),
       callAI(effortSystem, userPrompt).catch(err => {
@@ -237,7 +241,6 @@ ${resumeText}`;
     console.log("General Result: ", generalResult);
     console.log("Effort Result: ", effortResult);
     console.log("Timeline Result: ", timelineResult);
-
 
     // ── Non-resume rejection gate ──
     if (generalResult.is_resume === false) {
@@ -265,6 +268,7 @@ ${resumeText}`;
     // Prefer AI-extracted username; fall back to regex extraction
     const finalGithubUsername = generalResult.extracted_github_username || textExtractedGithub || null;
 
+    // Normalize and validate the AI response
     const score = Math.min(100, Math.max(0, generalResult.score || 0));
     const status = generalResult.status || (score >= 85 ? "excellent" : score >= 70 ? "good" : score >= 50 ? "average" : "poor");
 

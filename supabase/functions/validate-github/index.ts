@@ -26,7 +26,10 @@ interface GitHubUser {
   following: number;
 }
 
-// Helper to fetch architecture details for a repo
+/**
+ * Fetch file tree and README excerpt from a GitHub repo
+ * to provide architectural context for AI analysis.
+ */
 async function getRepoArchitecture(owner: string, repo: string) {
   const headers = {
     "Accept": "application/vnd.github.v3+json",
@@ -63,6 +66,7 @@ async function getRepoArchitecture(owner: string, repo: string) {
 }
 
 serve(async (req) => {
+  // Handle preflight CORS request
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
@@ -70,6 +74,7 @@ serve(async (req) => {
   try {
     const { githubUsername, applicantName } = await req.json();
     
+    // Validate required parameters
     if (!githubUsername || !applicantName) {
       return new Response(
         JSON.stringify({ error: "GitHub username and applicant name are required" }),
@@ -99,7 +104,7 @@ serve(async (req) => {
 
     const userData: GitHubUser = await userResponse.json();
     
-    // Fetch repositories
+    // Fetch all public repositories
     const reposResponse = await fetch(
       `https://api.github.com/users/${githubUsername}/repos?per_page=100&sort=updated`,
       {
@@ -116,12 +121,12 @@ serve(async (req) => {
 
     const repos: GitHubRepo[] = await reposResponse.json();
 
-    // Calculate account age
+    // Calculate account age in days
     const accountCreated = new Date(userData.created_at);
     const now = new Date();
     const accountAgeDays = Math.floor((now.getTime() - accountCreated.getTime()) / (1000 * 60 * 60 * 24));
 
-    // Analyze repositories
+    // Analyze repository patterns
     const originalRepos = repos.filter(r => !r.fork);
     const forkedRepos = repos.filter(r => r.fork);
     
@@ -130,13 +135,13 @@ serve(async (req) => {
     sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
     const recentlyActive = repos.filter(r => new Date(r.pushed_at) > sixMonthsAgo).length;
 
-    // Detect suspicious patterns
+    // Detect suspicious patterns that might indicate fake profiles
     const suspiciouslyNewAccount = accountAgeDays < 30 && repos.length > 10;
     const tooManyForks = forkedRepos.length > originalRepos.length * 2;
     const noRecentActivity = recentlyActive === 0 && repos.length > 0;
     const lowStarRatio = repos.length > 5 && repos.reduce((sum, r) => sum + r.stargazers_count, 0) < 3;
 
-    // Prepare data for AI analysis
+    // Prepare context for AI analysis
     const analysisContext = {
       username: githubUsername,
       accountAgeDays,
@@ -163,7 +168,7 @@ serve(async (req) => {
       throw new Error("LOVABLE_API_KEY not configured");
     }
 
-    // Format repo details for the LLM
+    // Sort and select top repositories for analysis
     const sortedOriginalRepos = originalRepos
       .sort((a, b) => b.stargazers_count - a.stargazers_count || new Date(b.pushed_at).getTime() - new Date(a.pushed_at).getTime());
 
@@ -172,7 +177,7 @@ serve(async (req) => {
       .map(r => `- ${r.name} (${r.language || 'No lang'}): Stars: ${r.stargazers_count}, Last push: ${new Date(r.pushed_at).toISOString().split('T')[0]}\n  Description: ${r.description ? r.description.substring(0, 100) : 'none'}`)
       .join('\n');
       
-    // Deep analysis of Top 2 repos
+    // Deep analysis of top 2 repos for authenticity verification
     const top2OriginalRepos = sortedOriginalRepos.slice(0, 2);
     let deepArchitectureData = "";
     
@@ -186,12 +191,14 @@ serve(async (req) => {
       }
     }
 
+    // Get recent fork activity for analysis
     const recentForksInfo = forkedRepos
       .sort((a, b) => new Date(b.pushed_at).getTime() - new Date(a.pushed_at).getTime())
       .slice(0, 5)
       .map(r => `- ${r.name}: Last push: ${new Date(r.pushed_at).toISOString().split('T')[0]}`)
       .join('\n');
 
+    // Build the AI prompt with all gathered data
     const aiPrompt = `You are a technical recruiter analyzing a GitHub profile for authenticity. 
 
 Profile Data:
@@ -240,6 +247,7 @@ Respond in JSON format:
   "summary": "<string>"
 }`;
 
+    // Call Lovable AI Gateway for analysis
     const aiResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -275,10 +283,9 @@ Respond in JSON format:
       throw new Error("No response from AI");
     }
 
-    // Parse AI response
+    // Parse AI response, handling markdown code blocks if present
     let analysisResult;
     try {
-      // Try to extract JSON from markdown code blocks if present
       const jsonMatch = aiContent.match(/```json\n([\s\S]*?)\n```/) || aiContent.match(/```\n([\s\S]*?)\n```/);
       const jsonText = jsonMatch ? jsonMatch[1] : aiContent;
       analysisResult = JSON.parse(jsonText);
@@ -287,10 +294,10 @@ Respond in JSON format:
       throw new Error("Failed to parse AI analysis");
     }
 
-    // Estimate total commits (simplified - would need GitHub API v4 GraphQL for accurate count)
-    const estimatedCommits = originalRepos.length * 10; // Rough estimate
+    // Estimate total commits (simplified approximation)
+    const estimatedCommits = originalRepos.length * 10;
 
-    // Save to database
+    // Save results to database
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, supabaseKey);
