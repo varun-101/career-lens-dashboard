@@ -37,6 +37,147 @@ import { CreateJobDialog } from "@/components/CreateJobDialog";
 import { JobPostingCard } from "@/components/JobPostingCard";
 import { WhatIfSimulator } from "@/components/WhatIfSimulator";
 
+/* ═══════════════════════════════════════════════════════════
+   Animated SVG Illustrations
+═══════════════════════════════════════════════════════════ */
+
+/** Card 1: flowing people/applicant network */
+const ApplicantsSVG = () => (
+  <svg viewBox="0 0 80 56" fill="none" className="w-16 h-12 opacity-80" aria-hidden>
+    <style>{`
+      @keyframes da-float { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-3px)} }
+      @keyframes da-pulse { 0%,100%{opacity:.6} 50%{opacity:1} }
+      @keyframes da-line { 0%{stroke-dashoffset:40} 100%{stroke-dashoffset:0} }
+    `}</style>
+    {/* Person 1 (centre) */}
+    <g style={{animation:"da-float 3s ease-in-out infinite"}}>
+      <circle cx="40" cy="16" r="7" fill="hsl(221,83%,53%)" opacity=".9"/>
+      <rect x="30" y="26" width="20" height="14" rx="7" fill="hsl(221,83%,53%)" opacity=".7"/>
+    </g>
+    {/* Person 2 (left) */}
+    <g style={{animation:"da-float 3s ease-in-out infinite .8s"}}>
+      <circle cx="14" cy="22" r="5.5" fill="hsl(262,83%,58%)" opacity=".8"/>
+      <rect x="6" y="30" width="16" height="11" rx="5.5" fill="hsl(262,83%,58%)" opacity=".6"/>
+    </g>
+    {/* Person 3 (right) */}
+    <g style={{animation:"da-float 3s ease-in-out infinite 1.4s"}}>
+      <circle cx="66" cy="22" r="5.5" fill="hsl(142,71%,35%)" opacity=".8"/>
+      <rect x="58" y="30" width="16" height="11" rx="5.5" fill="hsl(142,71%,35%)" opacity=".6"/>
+    </g>
+    {/* Connecting arcs */}
+    <path d="M22 32 Q31 24 33 28" stroke="hsl(221,83%,53%)" strokeWidth="1.2" strokeDasharray="5,3"
+      style={{animation:"da-line 2s linear infinite"}} strokeLinecap="round"/>
+    <path d="M47 28 Q49 24 58 32" stroke="hsl(221,83%,53%)" strokeWidth="1.2" strokeDasharray="5,3"
+      style={{animation:"da-line 2s linear infinite .5s"}} strokeLinecap="round"/>
+    {/* Dots at node centres */}
+    <circle cx="40" cy="16" r="2.5" fill="white" opacity=".5" style={{animation:"da-pulse 2s ease-in-out infinite"}}/>
+    <circle cx="14" cy="22" r="2" fill="white" opacity=".4" style={{animation:"da-pulse 2s ease-in-out infinite .6s"}}/>
+    <circle cx="66" cy="22" r="2" fill="white" opacity=".4" style={{animation:"da-pulse 2s ease-in-out infinite 1.2s"}}/>
+  </svg>
+);
+
+/** Card 2: animated score gauge/arc */
+const ScoreGaugeSVG = ({ score }: { score: number }) => {
+  const pct = Math.min(100, Math.max(0, score)) / 100;
+  const r = 22;
+  const circ = Math.PI * r; // half-circle circumference
+  const dash = pct * circ;
+  return (
+    <svg viewBox="0 0 80 50" fill="none" className="w-16 h-12 opacity-90" aria-hidden>
+      <style>{`@keyframes sg-fill{from{stroke-dasharray:0 ${circ}}to{stroke-dasharray:${dash} ${circ}}}`}</style>
+      {/* Track */}
+      <path d="M10 42 A30 30 0 0 1 70 42" stroke="hsl(262,83%,58%,.15)" strokeWidth="6" strokeLinecap="round"/>
+      {/* Fill arc */}
+      <path d="M10 42 A30 30 0 0 1 70 42" stroke="hsl(262,83%,58%)" strokeWidth="6" strokeLinecap="round"
+        style={{
+          strokeDasharray: `${dash} ${circ}`,
+          animation: "sg-fill 1.4s ease-out both",
+        }}/>
+      {/* Needle tip */}
+      <circle
+        cx={40 + 30 * Math.cos(Math.PI + pct * Math.PI)}
+        cy={42 + 30 * Math.sin(Math.PI + pct * Math.PI)}
+        r="4" fill="hsl(262,83%,58%)" opacity=".9"/>
+      <text x="40" y="38" textAnchor="middle" fontSize="11" fontWeight="900"
+        fill="hsl(262,83%,58%)" fontFamily="Inter,sans-serif">{score}%</text>
+    </svg>
+  );
+};
+
+/** Card 3: rising star / medal for excellent candidates */
+const ExcellentSVG = ({ count }: { count: number }) => (
+  <svg viewBox="0 0 80 56" fill="none" className="w-16 h-12 opacity-85" aria-hidden>
+    <style>{`
+      @keyframes es-spin{0%,100%{transform:rotate(-8deg)}50%{transform:rotate(8deg)}}
+      @keyframes es-scale{0%,100%{transform:scale(1)}50%{transform:scale(1.08)}}
+      @keyframes es-trail{0%{opacity:0;transform:translateY(4px)}60%{opacity:1}100%{opacity:0;transform:translateY(-10px)}}
+    `}</style>
+    {/* Star rays */}
+    {[0,45,90,135,180,225,270,315].map((deg,i)=>(
+      <line key={deg}
+        x1={40 + 14*Math.cos(deg*Math.PI/180)} y1={28 + 14*Math.sin(deg*Math.PI/180)}
+        x2={40 + 20*Math.cos(deg*Math.PI/180)} y2={28 + 20*Math.sin(deg*Math.PI/180)}
+        stroke="hsl(142,71%,35%)" strokeWidth="1.5" strokeLinecap="round" opacity=".4"
+        style={{animation:`es-scale 2.5s ease-in-out infinite ${i*0.1}s`, transformOrigin:"40px 28px"}}/>
+    ))}
+    {/* Medal circle */}
+    <circle cx="40" cy="28" r="13" fill="hsl(142,71%,35%)" opacity=".15"/>
+    <circle cx="40" cy="28" r="11" stroke="hsl(142,71%,35%)" strokeWidth="2" fill="none" opacity=".6"
+      style={{animation:"es-scale 3s ease-in-out infinite", transformOrigin:"40px 28px"}}/>
+    {/* Trophy cup simplified */}
+    <text x="40" y="33" textAnchor="middle" fontSize="14" style={{animation:"es-spin 4s ease-in-out infinite", transformOrigin:"40px 28px"}}>🏆</text>
+    {/* Count badge */}
+    <rect x="52" y="8" width="22" height="14" rx="7" fill="hsl(142,71%,35%)"/>
+    <text x="63" y="19" textAnchor="middle" fontSize="9" fill="white" fontWeight="900" fontFamily="Inter,sans-serif">{count}</text>
+    {/* Rising sparkles */}
+    {[1,2,3].map(i=>(
+      <circle key={i} cx={20+i*8} cy={48} r="1.5" fill="hsl(142,71%,35%)" opacity=".7"
+        style={{animation:`es-trail 1.8s ease-out infinite ${i*0.4}s`}}/>
+    ))}
+  </svg>
+);
+
+/** Empty state: magnifying glass scanning a resume */
+const EmptyStateSVG = () => (
+  <svg viewBox="0 0 200 160" fill="none" className="w-48 h-36 mx-auto opacity-70" aria-hidden>
+    <style>{`
+      @keyframes emp-scan{0%,100%{transform:translateY(0)}50%{transform:translateY(50px)}}
+      @keyframes emp-blink{0%,100%{opacity:1}50%{opacity:.2}}
+    `}</style>
+    {/* Document */}
+    <rect x="55" y="20" width="90" height="120" rx="8" fill="hsl(210,40%,98%)" stroke="hsl(214,32%,91%)" strokeWidth="1.5"/>
+    {/* Lines on document */}
+    {[44,56,68,80,92,104].map(y=>(
+      <rect key={y} x="70" y={y} width={y%24===20?50:65} height="5" rx="2.5" fill="hsl(214,32%,91%)"/>
+    ))}
+    {/* Scanning line */}
+    <rect x="55" y="0" width="90" height="3" rx="1.5" fill="hsl(221,83%,53%)" opacity=".5"
+      style={{animation:"emp-scan 2.5s ease-in-out infinite", transformOrigin:"55px 20px"}}/>
+    {/* Magnifier */}
+    <circle cx="148" cy="108" r="28" stroke="hsl(221,83%,53%)" strokeWidth="4" fill="hsl(221,83%,53%,.08)"/>
+    <line x1="168" y1="128" x2="185" y2="145" stroke="hsl(221,83%,53%)" strokeWidth="5" strokeLinecap="round"/>
+    {/* Lens glint */}
+    <circle cx="138" cy="98" r="5" fill="white" opacity=".5" style={{animation:"emp-blink 2s ease-in-out infinite"}}/>
+  </svg>
+);
+
+/** Header: subtle animated wave / data-flow background */
+const HeaderWaveSVG = () => (
+  <svg className="absolute inset-0 w-full h-full opacity-[0.04] pointer-events-none" preserveAspectRatio="xMidYMid slice" aria-hidden>
+    <style>{`
+      @keyframes hw-drift{0%{transform:translateX(0)}100%{transform:translateX(-200px)}}
+    `}</style>
+    <defs>
+      <pattern id="hw-grid" width="40" height="40" patternUnits="userSpaceOnUse">
+        <path d="M40 0 L0 0 0 40" stroke="hsl(221,83%,53%)" strokeWidth="0.6" fill="none"/>
+      </pattern>
+    </defs>
+    <rect width="200%" height="100%" fill="url(#hw-grid)"
+      style={{animation:"hw-drift 12s linear infinite"}}/>
+  </svg>
+);
+
+
 interface ResumeAnalysis {
   score?: number;
   status?: string;
@@ -315,9 +456,10 @@ const Dashboard = () => {
   return (
     <div className="min-h-screen bg-background">
       {/* Header */}
-      <header className="border-b border-border bg-card shadow-soft">
+      <header className="border-b border-border bg-card shadow-soft relative overflow-hidden">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-          <div className="flex h-16 items-center justify-between">
+          <HeaderWaveSVG />
+          <div className="flex h-16 items-center justify-between relative z-10">
             <div className="flex items-center gap-2">
               <div className="rounded-lg bg-primary p-2">
                 <FileText className="h-5 w-5 text-primary-foreground" />
@@ -344,8 +486,9 @@ const Dashboard = () => {
                 <Users className="h-5 w-5 text-primary" />
               </div>
             </CardHeader>
-            <CardContent>
+            <CardContent className="flex items-end justify-between">
               <div className="text-4xl font-extrabold text-foreground">{filteredApplicants.length}</div>
+              <ApplicantsSVG />
             </CardContent>
           </Card>
 
@@ -358,10 +501,11 @@ const Dashboard = () => {
                 <TrendingUp className="h-5 w-5 text-accent" />
               </div>
             </CardHeader>
-            <CardContent>
+            <CardContent className="flex items-end justify-between">
               <div className={`text-4xl font-extrabold ${getScoreColor(averageScore)}`}>
                 {averageScore}%
               </div>
+              <ScoreGaugeSVG score={averageScore} />
             </CardContent>
           </Card>
 
@@ -374,10 +518,11 @@ const Dashboard = () => {
                 <CheckCircle className="h-5 w-5 text-success" />
               </div>
             </CardHeader>
-            <CardContent>
+            <CardContent className="flex items-end justify-between">
               <div className="text-4xl font-extrabold text-success">
                 {filteredApplicants.filter((a) => a.status === "excellent").length}
               </div>
+              <ExcellentSVG count={filteredApplicants.filter((a) => a.status === "excellent").length} />
             </CardContent>
           </Card>
         </div>
@@ -451,10 +596,10 @@ const Dashboard = () => {
                     <Loader2 className="h-8 w-8 animate-spin text-primary" />
                   </div>
                 ) : filteredApplicants.length === 0 ? (
-                  <div className="flex flex-col items-center justify-center py-12 text-center">
-                    <FileText className="h-12 w-12 text-muted-foreground mb-4" />
+                  <div className="flex flex-col items-center justify-center py-12 text-center gap-3">
+                    <EmptyStateSVG />
                     <h3 className="text-lg font-semibold text-foreground">No applicants yet</h3>
-                    <p className="text-muted-foreground mt-1">
+                    <p className="text-muted-foreground text-sm max-w-xs">
                       Upload a resume to get started with AI-powered analysis
                     </p>
                   </div>
