@@ -8,47 +8,47 @@ All colors MUST be HSL.
 
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 240 10% 10%;
+    --background: 210 40% 98%;
+    --foreground: 222 47% 11%;
 
     --card: 0 0% 100%;
-    --card-foreground: 240 10% 10%;
+    --card-foreground: 222 47% 11%;
 
     --popover: 0 0% 100%;
-    --popover-foreground: 240 10% 10%;
+    --popover-foreground: 222 47% 11%;
 
-    --primary: 239 84% 67%;
-    --primary-foreground: 0 0% 100%;
-    --primary-glow: 239 90% 75%;
+    --primary: 221 83% 53%;
+    --primary-foreground: 210 40% 98%;
+    --primary-glow: 221 83% 65%;
 
-    --secondary: 240 5% 96%;
-    --secondary-foreground: 240 6% 10%;
+    --secondary: 210 40% 96%;
+    --secondary-foreground: 222 47% 11%;
 
-    --muted: 240 5% 96%;
-    --muted-foreground: 240 4% 46%;
+    --muted: 210 40% 96%;
+    --muted-foreground: 215 16% 47%;
 
-    --accent: 268 83% 58%;
-    --accent-foreground: 0 0% 100%;
+    --accent: 262 83% 58%;
+    --accent-foreground: 210 40% 98%;
 
-    --destructive: 0 84% 60%;
-    --destructive-foreground: 0 0% 100%;
+    --destructive: 348 83% 47%;
+    --destructive-foreground: 210 40% 98%;
 
-    --success: 142 71% 45%;
-    --success-foreground: 0 0% 100%;
+    --success: 142 71% 35%;
+    --success-foreground: 210 40% 98%;
 
     --warning: 38 92% 50%;
     --warning-foreground: 0 0% 100%;
 
-    --border: 240 6% 90%;
-    --input: 240 6% 90%;
-    --ring: 239 84% 67%;
+    --border: 214 32% 91%;
+    --input: 214 32% 91%;
+    --ring: 221 83% 53%;
 
     --radius: 0.75rem;
 
-    --gradient-hero: linear-gradient(135deg, hsl(239 84% 67%) 0%, hsl(268 83% 58%) 100%);
-    --gradient-card: linear-gradient(180deg, hsl(0 0% 100%) 0%, hsl(240 5% 98%) 100%);
-    --shadow-soft: 0 2px 20px -2px hsl(239 84% 67% / 0.12);
-    --shadow-elevated: 0 8px 32px -4px hsl(239 84% 67% / 0.18);
+    --gradient-hero: linear-gradient(135deg, hsl(221 83% 53%) 0%, hsl(262 83% 58%) 100%);
+    --gradient-card: linear-gradient(180deg, hsl(0 0% 100%) 0%, hsl(210 40% 98%) 100%);
+    --shadow-soft: 0 4px 20px -2px hsl(222 47% 11% / 0.05);
+    --shadow-elevated: 0 10px 30px -4px hsl(222 47% 11% / 0.1);
   }
 
   .dark {

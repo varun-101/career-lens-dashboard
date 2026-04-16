@@ -335,41 +335,47 @@ const Dashboard = () => {
       <main className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-8">
         {/* Stats Cards */}
         <div className="grid gap-6 md:grid-cols-3 mb-8">
-          <Card className="shadow-soft border-border bg-gradient-card">
+          <Card className="shadow-elevated border-t-4 border-t-primary bg-card transition-all hover:-translate-y-1 hover:shadow-xl">
             <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground">
+              <CardTitle className="text-sm font-bold uppercase tracking-wider text-muted-foreground">
                 Total Applicants
               </CardTitle>
-              <Users className="h-4 w-4 text-muted-foreground" />
+              <div className="rounded-full bg-primary/10 p-2.5">
+                <Users className="h-5 w-5 text-primary" />
+              </div>
             </CardHeader>
             <CardContent>
-              <div className="text-3xl font-bold text-foreground">{filteredApplicants.length}</div>
+              <div className="text-4xl font-extrabold text-foreground">{filteredApplicants.length}</div>
             </CardContent>
           </Card>
 
-          <Card className="shadow-soft border-border bg-gradient-card">
+          <Card className="shadow-elevated border-t-4 border-t-accent bg-card transition-all hover:-translate-y-1 hover:shadow-xl">
             <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground">
+              <CardTitle className="text-sm font-bold uppercase tracking-wider text-muted-foreground">
                 Average Score
               </CardTitle>
-              <TrendingUp className="h-4 w-4 text-muted-foreground" />
+              <div className="rounded-full bg-accent/10 p-2.5">
+                <TrendingUp className="h-5 w-5 text-accent" />
+              </div>
             </CardHeader>
             <CardContent>
-              <div className={`text-3xl font-bold ${getScoreColor(averageScore)}`}>
+              <div className={`text-4xl font-extrabold ${getScoreColor(averageScore)}`}>
                 {averageScore}%
               </div>
             </CardContent>
           </Card>
 
-          <Card className="shadow-soft border-border bg-gradient-card">
+          <Card className="shadow-elevated border-t-4 border-t-success bg-card transition-all hover:-translate-y-1 hover:shadow-xl">
             <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground">
+              <CardTitle className="text-sm font-bold uppercase tracking-wider text-muted-foreground">
                 Excellent Candidates
               </CardTitle>
-              <FileText className="h-4 w-4 text-muted-foreground" />
+              <div className="rounded-full bg-success/10 p-2.5">
+                <CheckCircle className="h-5 w-5 text-success" />
+              </div>
             </CardHeader>
             <CardContent>
-              <div className="text-3xl font-bold text-success">
+              <div className="text-4xl font-extrabold text-success">
                 {filteredApplicants.filter((a) => a.status === "excellent").length}
               </div>
             </CardContent>
@@ -453,10 +459,10 @@ const Dashboard = () => {
                     </p>
                   </div>
                 ) : (
-                  <div className="rounded-md border border-border">
+                  <div className="rounded-xl border border-border bg-card overflow-hidden shadow-sm">
                     <Table>
-                      <TableHeader>
-                        <TableRow>
+                      <TableHeader className="bg-muted/40">
+                        <TableRow className="hover:bg-transparent">
                           <TableHead>Name</TableHead>
                           <TableHead>Position</TableHead>
                           <TableHead>Score</TableHead>
@@ -470,7 +476,7 @@ const Dashboard = () => {
                       </TableHeader>
                       <TableBody>
                         {filteredApplicants.map((applicant) => (
-                          <TableRow key={applicant.id} className="hover:bg-muted/50">
+                          <TableRow key={applicant.id} className="hover:bg-muted/60 transition-colors odd:bg-card even:bg-muted/20 border-b border-border/50">
                             <TableCell className="font-medium">
                               <div>
                                 <div className="font-semibold text-foreground">{applicant.name}</div>
@@ -479,9 +485,13 @@ const Dashboard = () => {
                             </TableCell>
                             <TableCell>{applicant.position}</TableCell>
                             <TableCell>
-                              <span className={`text-lg font-bold ${getScoreColor(applicant.ai_score)}`}>
+                              <div className={`inline-flex items-center justify-center rounded-full px-3 py-1 font-extrabold shadow-sm border ${
+                                (applicant.ai_score || 0) >= 85 ? 'bg-success/10 border-success/20 text-success' :
+                                (applicant.ai_score || 0) >= 70 ? 'bg-warning/10 border-warning/20 text-warning' :
+                                'bg-destructive/10 border-destructive/20 text-destructive'
+                              }`}>
                                 {applicant.ai_score || 0}%
-                              </span>
+                              </div>
                             </TableCell>
                             <TableCell>
                               {applicant.github_username ? (
@@ -533,7 +543,16 @@ const Dashboard = () => {
                               </div>
                             </TableCell>
                             <TableCell>
-                              <Badge variant={getScoreBadgeVariant(applicant.status)}>
+                              <Badge 
+                                variant={getScoreBadgeVariant(applicant.status)}
+                                className={
+                                  applicant.status === 'excellent' 
+                                    ? 'bg-success hover:bg-success/90 text-success-foreground border-transparent font-bold tracking-wider uppercase text-[10px]'
+                                    : applicant.status === 'good'
+                                    ? 'bg-warning hover:bg-warning/90 text-warning-foreground border-transparent font-bold tracking-wider uppercase text-[10px]'
+                                    : 'font-bold tracking-wider uppercase text-[10px]'
+                                }
+                              >
                                 {applicant.status || "pending"}
                               </Badge>
                             </TableCell>

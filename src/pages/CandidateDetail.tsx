@@ -20,6 +20,12 @@ import {
     GitBranch,
     Info,
     RefreshCw,
+    ChevronDown,
+    ChevronUp,
+    Star,
+    TrendingDown,
+    Lightbulb,
+    GitMerge,
 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
@@ -27,6 +33,245 @@ import { useAuth } from "@/hooks/useAuth";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { EffortVsClaimChart } from "@/components/EffortVsClaimChart";
 import { ResumeTimelineChart } from "@/components/ResumeTimelineChart";
+
+/* ─────────────────────────────────────────────────────────────
+   Helper: extract a short headline from a long AI bullet string
+   e.g. "Strong Project Portfolio: ..." → "Strong Project Portfolio"
+   Falls back to first ~6 words if no colon found.
+───────────────────────────────────────────────────────────────*/
+function extractHeadline(text: string): { headline: string; detail: string } {
+    const colonIdx = text.indexOf(":");
+    if (colonIdx > 4 && colonIdx < 60) {
+        return {
+            headline: text.slice(0, colonIdx).trim(),
+            detail: text.slice(colonIdx + 1).trim(),
+        };
+    }
+    const words = text.split(" ");
+    const headline = words.slice(0, 6).join(" ") + (words.length > 6 ? "…" : "");
+    return { headline, detail: text };
+}
+
+/* ─────────────────────────────────────────────────────────────
+   InsightCard — Strengths or Weaknesses with accordion items
+───────────────────────────────────────────────────────────────*/
+interface InsightCardProps { type: "strength" | "weakness"; items: string[]; }
+
+const InsightCard = ({ type, items }: InsightCardProps) => {
+    const [expandedIdx, setExpandedIdx] = useState<number | null>(null);
+    const isStrength = type === "strength";
+    if (items.length === 0) {
+        return (
+            <Card className="shadow-soft border-border">
+                <CardContent className="py-8 text-center text-muted-foreground text-sm italic">
+                    {isStrength ? "No notable strengths identified." : "No specific improvement areas identified."}
+                </CardContent>
+            </Card>
+        );
+    }
+    return (
+        <Card className={`shadow-soft hover:shadow-md transition-shadow overflow-hidden border-t-4 ${isStrength ? "border-t-success" : "border-t-warning"}`}>
+            <CardHeader className="bg-muted/10 border-b pb-4">
+                <CardTitle className={`flex items-center gap-2.5 ${isStrength ? "text-success" : "text-warning"}`}>
+                    {isStrength ? <><Star className="h-5 w-5" /> Key Strengths</> : <><TrendingDown className="h-5 w-5" /> Areas for Improvement</>}
+                </CardTitle>
+                <CardDescription>
+                    {isStrength
+                        ? `${items.length} positive indicator${items.length !== 1 ? "s" : ""} — click any to expand`
+                        : `${items.length} concern${items.length !== 1 ? "s" : ""} identified — click any to expand`}
+                </CardDescription>
+            </CardHeader>
+            <CardContent className="pt-0 divide-y divide-border/60">
+                {items.map((item, i) => {
+                    const { headline, detail } = extractHeadline(item);
+                    const isOpen = expandedIdx === i;
+                    return (
+                        <button key={i} className="w-full text-left py-3 px-1 group focus:outline-none"
+                            onClick={() => setExpandedIdx(isOpen ? null : i)}>
+                            <div className="flex items-center gap-3">
+                                <div className={`shrink-0 w-5 h-5 rounded-full flex items-center justify-center ${isStrength ? "bg-success/10" : "bg-warning/10"}`}>
+                                    {isStrength
+                                        ? <CheckCircle className="h-3 w-3 text-success" />
+                                        : <AlertTriangle className="h-3 w-3 text-warning" />}
+                                </div>
+                                <span className="flex-1 text-sm font-semibold text-foreground group-hover:text-primary transition-colors">{headline}</span>
+                                {isOpen ? <ChevronUp className="h-3.5 w-3.5 text-muted-foreground shrink-0" /> : <ChevronDown className="h-3.5 w-3.5 text-muted-foreground shrink-0" />}
+                            </div>
+                            {isOpen && detail !== headline && (
+                                <p className="mt-2 ml-8 text-sm text-muted-foreground leading-relaxed border-l-2 border-border pl-3">{detail}</p>
+                            )}
+                        </button>
+                    );
+                })}
+            </CardContent>
+        </Card>
+    );
+};
+
+/* ─────────────────────────────────────────────────────────────
+   RecommendationsCard — numbered accordion
+───────────────────────────────────────────────────────────────*/
+const RecommendationsCard = ({ items }: { items: string[] }) => {
+    const [expandedIdx, setExpandedIdx] = useState<number | null>(null);
+    return (
+        <Card className="shadow-soft border-border md:col-span-2 hover:shadow-md transition-shadow overflow-hidden">
+            <CardHeader className="bg-primary/5 border-b pb-4">
+                <CardTitle className="flex items-center gap-2.5 text-primary">
+                    <Lightbulb className="h-5 w-5" /> Hiring Recommendations
+                </CardTitle>
+                <CardDescription>{items.length} AI-generated action{items.length !== 1 ? "s" : ""} — click any to expand</CardDescription>
+            </CardHeader>
+            <CardContent className="pt-0 divide-y divide-border/60">
+                {items.map((rec, i) => {
+                    const { headline, detail } = extractHeadline(rec);
+                    const isOpen = expandedIdx === i;
+                    return (
+                        <button key={i} className="w-full text-left py-3 px-1 group focus:outline-none"
+                            onClick={() => setExpandedIdx(isOpen ? null : i)}>
+                            <div className="flex items-center gap-3">
+                                <span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary text-primary-foreground text-xs font-black flex-shrink-0">{i + 1}</span>
+                                <span className="flex-1 text-sm font-semibold text-foreground group-hover:text-primary transition-colors">{headline}</span>
+                                {isOpen ? <ChevronUp className="h-3.5 w-3.5 text-muted-foreground shrink-0" /> : <ChevronDown className="h-3.5 w-3.5 text-muted-foreground shrink-0" />}
+                            </div>
+                            {isOpen && detail !== headline && (
+                                <p className="mt-2 ml-9 text-sm text-muted-foreground leading-relaxed border-l-2 border-border pl-3">{detail}</p>
+                            )}
+                        </button>
+                    );
+                })}
+            </CardContent>
+        </Card>
+    );
+};
+
+/* ─────────────────────────────────────────────────────────────
+   GitHubCard — compact status bar, expandable full detail
+───────────────────────────────────────────────────────────────*/
+interface GitHubValidationLocal {
+    id: string; authenticity_score: number; analysis_summary: string | null;
+    red_flags: string[]; positive_indicators: string[]; total_repos: number; account_age_days: number;
+}
+interface GitHubCardProps {
+    githubUsername: string | null; githubExtractedUsername: string | null;
+    githubMatchStatus: string | null; githubValidation: GitHubValidationLocal | null;
+}
+
+const GitHubCard = ({ githubUsername, githubExtractedUsername, githubMatchStatus, githubValidation }: GitHubCardProps) => {
+    const [expanded, setExpanded] = useState(false);
+    const matchConfig: Record<string, { label: string; icon: React.ElementType; cls: string }> = {
+        match: { label: "Verified Match", icon: CheckCircle, cls: "text-success bg-success/10 border-success/20" },
+        mismatch: { label: "Mismatch — Review", icon: AlertTriangle, cls: "text-destructive bg-destructive/10 border-destructive/20" },
+        provided_only: { label: "Provided only", icon: Info, cls: "text-warning bg-warning/10 border-warning/20" },
+        extracted_only: { label: "Extracted only", icon: GitMerge, cls: "text-muted-foreground bg-muted/40 border-border" },
+    };
+    const mc = matchConfig[githubMatchStatus ?? ""] ?? null;
+    const authScore = githubValidation?.authenticity_score ?? null;
+    const authColor = authScore == null ? "text-muted-foreground" : authScore >= 70 ? "text-success" : authScore >= 50 ? "text-warning" : "text-destructive";
+
+    return (
+        <Card className="shadow-soft border-border mb-6 overflow-hidden">
+            {/* Compact always-visible row */}
+            <button className="w-full text-left" onClick={() => setExpanded(!expanded)}>
+                <div className="flex items-center justify-between gap-4 px-6 py-4 hover:bg-muted/30 transition-colors">
+                    <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 rounded-lg bg-muted flex items-center justify-center">
+                            <Github className="h-4 w-4 text-foreground" />
+                        </div>
+                        <div>
+                            <p className="text-sm font-bold text-foreground">GitHub Verification</p>
+                            <p className="text-xs text-muted-foreground">{githubUsername ? `@${githubUsername}` : "No username provided"}</p>
+                        </div>
+                    </div>
+                    <div className="flex items-center gap-3">
+                        {authScore !== null && (
+                            <div className={`text-base font-black ${authColor}`}>
+                                {authScore}%<span className="text-xs font-normal text-muted-foreground ml-1">authentic</span>
+                            </div>
+                        )}
+                        {mc && (
+                            <div className={`hidden sm:flex items-center gap-1.5 text-xs font-bold px-2.5 py-1 rounded-full border ${mc.cls}`}>
+                                <mc.icon className="h-3 w-3" /> {mc.label}
+                            </div>
+                        )}
+                        {expanded ? <ChevronUp className="h-4 w-4 text-muted-foreground shrink-0" /> : <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0" />}
+                    </div>
+                </div>
+            </button>
+
+            {/* Expanded detail drawer */}
+            {expanded && (
+                <div className="px-6 pb-6 pt-4 space-y-5 border-t border-border bg-muted/10">
+                    <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-1">
+                            <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Provided by candidate</p>
+                            {githubUsername ? (
+                                <a href={`https://github.com/${githubUsername}`} target="_blank" rel="noopener noreferrer"
+                                    className="flex items-center gap-2 text-sm font-semibold hover:text-primary transition-colors">
+                                    <Github className="h-4 w-4" /> @{githubUsername}
+                                </a>
+                            ) : <p className="text-sm text-muted-foreground">Not provided</p>}
+                        </div>
+                        <div className="space-y-1">
+                            <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Extracted from resume</p>
+                            {githubExtractedUsername ? (
+                                <a href={`https://github.com/${githubExtractedUsername}`} target="_blank" rel="noopener noreferrer"
+                                    className="flex items-center gap-2 text-sm font-semibold hover:text-primary transition-colors">
+                                    <GitBranch className="h-4 w-4" /> @{githubExtractedUsername}
+                                </a>
+                            ) : <p className="text-sm text-muted-foreground">Not found in resume</p>}
+                        </div>
+                    </div>
+                    {githubValidation && (
+                        <>
+                            <div className="flex gap-6 text-sm">
+                                <div className="flex items-center gap-1.5 text-muted-foreground">
+                                    <GitBranch className="h-3.5 w-3.5" />
+                                    <span><strong className="text-foreground">{githubValidation.total_repos}</strong> repos</span>
+                                </div>
+                                <div className="flex items-center gap-1.5 text-muted-foreground">
+                                    <Calendar className="h-3.5 w-3.5" />
+                                    <span>Age: <strong className="text-foreground">{Math.round(githubValidation.account_age_days / 30)}mo</strong></span>
+                                </div>
+                            </div>
+                            {githubValidation.analysis_summary && (
+                                <p className="text-sm text-muted-foreground leading-relaxed italic border-l-2 border-primary/30 pl-3">
+                                    {githubValidation.analysis_summary}
+                                </p>
+                            )}
+                            {githubValidation.positive_indicators.length > 0 && (
+                                <div>
+                                    <p className="text-xs font-bold uppercase tracking-widest text-success mb-2">Positive Indicators</p>
+                                    <ul className="space-y-1.5">
+                                        {githubValidation.positive_indicators.map((pi, i) => (
+                                            <li key={i} className="flex items-start gap-2 text-sm">
+                                                <CheckCircle className="h-3.5 w-3.5 text-success mt-0.5 shrink-0" />
+                                                <span className="text-muted-foreground">{pi}</span>
+                                            </li>
+                                        ))}
+                                    </ul>
+                                </div>
+                            )}
+                            {githubValidation.red_flags.length > 0 && (
+                                <div>
+                                    <p className="text-xs font-bold uppercase tracking-widest text-destructive mb-2">Red Flags</p>
+                                    <ul className="space-y-1.5">
+                                        {githubValidation.red_flags.map((rf, i) => (
+                                            <li key={i} className="flex items-start gap-2 text-sm">
+                                                <AlertTriangle className="h-3.5 w-3.5 text-destructive mt-0.5 shrink-0" />
+                                                <span className="text-muted-foreground">{rf}</span>
+                                            </li>
+                                        ))}
+                                    </ul>
+                                </div>
+                            )}
+                        </>
+                    )}
+                </div>
+            )}
+        </Card>
+    );
+};
+
 
 interface ResumeAnalysis {
     score?: number;
@@ -51,15 +296,8 @@ interface ResumeAnalysis {
     }>;
 }
 
-interface GitHubValidation {
-    id: string;
-    authenticity_score: number;
-    analysis_summary: string | null;
-    red_flags: string[];
-    positive_indicators: string[];
-    total_repos: number;
-    account_age_days: number;
-}
+// GitHubValidation is defined above as GitHubValidationLocal; alias it for use in this component
+type GitHubValidation = GitHubValidationLocal;
 
 interface Applicant {
     id: string;
@@ -382,39 +620,48 @@ const CandidateDetail = () => {
 
             <main className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-8">
                 {/* Candidate Header */}
-                <Card className="shadow-elevated border-border mb-6">
-                    <CardContent className="pt-6">
-                        <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
-                            <div className="flex-1">
-                                <div className="flex items-center gap-3 mb-2">
-                                    <h2 className="text-3xl font-bold">{applicant.name}</h2>
-                                    <Badge variant={getScoreBadgeVariant(applicant.status)} className="text-lg px-3 py-1">
+                <Card className="shadow-elevated border-l-[6px] border-l-primary mb-6 overflow-hidden bg-card">
+                    <CardContent className="p-0">
+                        <div className="flex flex-col md:flex-row">
+                            <div className="flex-1 p-6 md:p-8">
+                                <div className="flex items-center gap-4 mb-4">
+                                    <h2 className="text-4xl font-extrabold tracking-tight text-foreground">{applicant.name}</h2>
+                                    <Badge 
+                                        variant={getScoreBadgeVariant(applicant.status)} 
+                                        className={
+                                            applicant.status === 'excellent' 
+                                            ? 'bg-success hover:bg-success/90 text-success-foreground border-transparent font-bold tracking-wider uppercase'
+                                            : applicant.status === 'good'
+                                            ? 'bg-warning hover:bg-warning/90 text-warning-foreground border-transparent font-bold tracking-wider uppercase'
+                                            : 'font-bold tracking-wider uppercase'
+                                        }
+                                    >
                                         {applicant.status || "pending"}
                                     </Badge>
                                 </div>
-                                <div className="flex flex-col gap-2 text-muted-foreground">
-                                    <div className="flex items-center gap-2">
-                                        <Mail className="h-4 w-4" />
-                                        <a href={`mailto:${applicant.email}`} className="hover:text-primary">
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-y-3 gap-x-6 text-muted-foreground mt-6">
+                                    <div className="flex items-center gap-2.5 bg-muted/30 p-2.5 rounded-md">
+                                        <Mail className="h-4 w-4 text-primary" />
+                                        <a href={`mailto:${applicant.email}`} className="hover:text-primary font-medium">
                                             {applicant.email}
                                         </a>
                                     </div>
-                                    <div className="flex items-center gap-2">
-                                        <Briefcase className="h-4 w-4" />
-                                        <span>{applicant.position}</span>
+                                    <div className="flex items-center gap-2.5 bg-muted/30 p-2.5 rounded-md">
+                                        <Briefcase className="h-4 w-4 text-primary" />
+                                        <span className="font-medium">{applicant.position}</span>
                                     </div>
-                                    <div className="flex items-center gap-2">
-                                        <Calendar className="h-4 w-4" />
-                                        <span>Applied {new Date(applicant.created_at).toLocaleDateString()}</span>
+                                    <div className="flex items-center gap-2.5 bg-muted/30 p-2.5 rounded-md">
+                                        <Calendar className="h-4 w-4 text-primary" />
+                                        <span className="font-medium">Applied {new Date(applicant.created_at).toLocaleDateString()}</span>
                                     </div>
                                     {applicant.github_username && (
-                                        <div className="flex items-center gap-2">
-                                            <Github className="h-4 w-4" />
+                                        <div className="flex items-center gap-2.5 bg-muted/30 p-2.5 rounded-md">
+                                            <Github className="h-4 w-4 text-primary" />
                                             <a
                                                 href={`https://github.com/${applicant.github_username}`}
                                                 target="_blank"
                                                 rel="noopener noreferrer"
-                                                className="hover:text-primary"
+                                                className="hover:text-primary font-medium"
                                             >
                                                 @{applicant.github_username}
                                             </a>
@@ -422,47 +669,59 @@ const CandidateDetail = () => {
                                     )}
                                 </div>
                             </div>
-                            <div className="flex flex-col items-end gap-3">
-                                <div className="text-center">
-                                    <p className="text-sm text-muted-foreground mb-1">AI Score</p>
-                                    <p className={`text-5xl font-bold ${getScoreColor(applicant.ai_score)}`}>
-                                        {applicant.ai_score || 0}%
-                                    </p>
+                            
+                            {/* Score Box in Header */}
+                            <div className="flex flex-col items-center justify-center bg-muted/40 p-8 border-t md:border-t-0 md:border-l border-border md:min-w-[280px]">
+                                <div className="text-center group">
+                                    <p className="text-sm font-bold uppercase tracking-widest text-muted-foreground mb-3">AI Score</p>
+                                    <div className={`flex items-center justify-center w-32 h-32 rounded-full border-[6px] shadow-soft bg-card transition-transform group-hover:scale-105 ${
+                                        (applicant.ai_score || 0) >= 85 ? 'border-success text-success' :
+                                        (applicant.ai_score || 0) >= 70 ? 'border-warning text-warning' : 'border-destructive text-destructive'
+                                    }`}>
+                                        <span className="text-5xl font-black">
+                                            {applicant.ai_score || 0}%
+                                        </span>
+                                    </div>
                                 </div>
+                                
+                                <div className="mt-8 flex flex-col gap-3 w-full">
                                 {applicant.resume_url && (
-                                    <div className="flex flex-wrap gap-2">
+                                    <>
+                                        <div className="flex gap-2 w-full">
+                                            <Button
+                                                variant="outline"
+                                                onClick={handleViewResume}
+                                                className="flex-1 gap-2 shadow-sm"
+                                            >
+                                                <Eye className="h-4 w-4" />
+                                                View
+                                            </Button>
+                                            <Button onClick={handleDownloadResume} className="flex-1 gap-2 shadow-sm">
+                                                <Download className="h-4 w-4" />
+                                                Save
+                                            </Button>
+                                        </div>
                                         <Button
-                                            variant="outline"
-                                            onClick={handleViewResume}
-                                            className="gap-2"
-                                        >
-                                            <Eye className="h-4 w-4" />
-                                            View Resume
-                                        </Button>
-                                        <Button onClick={handleDownloadResume} className="gap-2">
-                                            <Download className="h-4 w-4" />
-                                            Download
-                                        </Button>
-                                        <Button
-                                            variant="outline"
+                                            variant="secondary"
                                             onClick={handleReanalyse}
                                             disabled={isReanalysing}
-                                            className="gap-2 border-primary/40 text-primary hover:bg-primary/10"
+                                            className="w-full gap-2 border shadow-sm"
                                         >
                                             {isReanalysing ? (
                                                 <>
                                                     <Loader2 className="h-4 w-4 animate-spin" />
-                                                    Re-analysing...
+                                                    Processing...
                                                 </>
                                             ) : (
                                                 <>
                                                     <RefreshCw className="h-4 w-4" />
-                                                    Re-analyse
+                                                    Re-analyse Candidate
                                                 </>
                                             )}
                                         </Button>
-                                    </div>
+                                    </>
                                 )}
+                                </div>
                             </div>
                         </div>
                     </CardContent>
@@ -470,128 +729,12 @@ const CandidateDetail = () => {
 
                 {/* ── GitHub Cross-Validation Card ── */}
                 {(applicant.github_username || applicant.github_extracted_username) && (
-                    <Card className="shadow-soft border-border mb-6">
-                        <CardHeader>
-                            <CardTitle className="flex items-center gap-2">
-                                <Github className="h-5 w-5" />
-                                GitHub Verification
-                            </CardTitle>
-                            <CardDescription>Cross-validation between provided and resume-extracted GitHub</CardDescription>
-                        </CardHeader>
-                        <CardContent className="space-y-4">
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                {/* Provided username */}
-                                <div className="space-y-1">
-                                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Provided by candidate</p>
-                                    {applicant.github_username ? (
-                                        <a
-                                            href={`https://github.com/${applicant.github_username}`}
-                                            target="_blank"
-                                            rel="noopener noreferrer"
-                                            className="flex items-center gap-2 text-sm font-medium hover:text-primary transition-colors"
-                                        >
-                                            <Github className="h-4 w-4" />
-                                            @{applicant.github_username}
-                                        </a>
-                                    ) : (
-                                        <p className="text-sm text-muted-foreground">Not provided</p>
-                                    )}
-                                </div>
-
-                                {/* Extracted from resume */}
-                                <div className="space-y-1">
-                                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Extracted from resume</p>
-                                    {applicant.github_extracted_username ? (
-                                        <a
-                                            href={`https://github.com/${applicant.github_extracted_username}`}
-                                            target="_blank"
-                                            rel="noopener noreferrer"
-                                            className="flex items-center gap-2 text-sm font-medium hover:text-primary transition-colors"
-                                        >
-                                            <GitBranch className="h-4 w-4" />
-                                            @{applicant.github_extracted_username}
-                                        </a>
-                                    ) : (
-                                        <p className="text-sm text-muted-foreground">Not found in resume</p>
-                                    )}
-                                </div>
-                            </div>
-
-                            {/* Match status badge */}
-                            <div className="flex items-center gap-2">
-                                {applicant.github_match_status === "match" && (
-                                    <Badge variant="default" className="gap-1 bg-green-600">
-                                        <CheckCircle className="h-3 w-3" /> Verified Match
-                                    </Badge>
-                                )}
-                                {applicant.github_match_status === "mismatch" && (
-                                    <Badge variant="destructive" className="gap-1">
-                                        <AlertTriangle className="h-3 w-3" /> Mismatch — Review Required
-                                    </Badge>
-                                )}
-                                {applicant.github_match_status === "provided_only" && (
-                                    <Badge variant="outline" className="gap-1">
-                                        <Info className="h-3 w-3" /> Provided only (not in resume)
-                                    </Badge>
-                                )}
-                                {applicant.github_match_status === "extracted_only" && (
-                                    <Badge variant="secondary" className="gap-1">
-                                        <GitBranch className="h-3 w-3" /> Extracted only (not declared)
-                                    </Badge>
-                                )}
-                            </div>
-
-                            {/* GitHub validation score */}
-                            {githubValidation && (
-                                <>
-                                    <Separator />
-                                    <div className="space-y-3">
-                                        <div className="flex items-center justify-between">
-                                            <p className="text-sm font-semibold">Authenticity Score</p>
-                                            <span className={`text-2xl font-bold ${githubValidation.authenticity_score >= 70 ? "text-success" :
-                                                githubValidation.authenticity_score >= 50 ? "text-warning" : "text-destructive"
-                                                }`}>
-                                                {githubValidation.authenticity_score}%
-                                            </span>
-                                        </div>
-                                        <div className="grid grid-cols-2 gap-3 text-sm text-muted-foreground">
-                                            <div>📁 {githubValidation.total_repos} repositories</div>
-                                            <div>📅 Account age: {Math.round(githubValidation.account_age_days / 30)}mo</div>
-                                        </div>
-                                        {githubValidation.analysis_summary && (
-                                            <p className="text-sm text-muted-foreground">{githubValidation.analysis_summary}</p>
-                                        )}
-                                        {githubValidation.positive_indicators.length > 0 && (
-                                            <div>
-                                                <p className="text-xs font-semibold text-muted-foreground mb-1">Positive Indicators</p>
-                                                <ul className="space-y-1">
-                                                    {githubValidation.positive_indicators.slice(0, 3).map((pi, i) => (
-                                                        <li key={i} className="flex items-start gap-2 text-sm">
-                                                            <CheckCircle className="h-3 w-3 text-success mt-0.5 flex-shrink-0" />
-                                                            {pi}
-                                                        </li>
-                                                    ))}
-                                                </ul>
-                                            </div>
-                                        )}
-                                        {githubValidation.red_flags.length > 0 && (
-                                            <div>
-                                                <p className="text-xs font-semibold text-muted-foreground mb-1">Red Flags</p>
-                                                <ul className="space-y-1">
-                                                    {githubValidation.red_flags.map((rf, i) => (
-                                                        <li key={i} className="flex items-start gap-2 text-sm">
-                                                            <AlertTriangle className="h-3 w-3 text-destructive mt-0.5 flex-shrink-0" />
-                                                            {rf}
-                                                        </li>
-                                                    ))}
-                                                </ul>
-                                            </div>
-                                        )}
-                                    </div>
-                                </>
-                            )}
-                        </CardContent>
-                    </Card>
+                    <GitHubCard
+                        githubUsername={applicant.github_username}
+                        githubExtractedUsername={applicant.github_extracted_username}
+                        githubMatchStatus={applicant.github_match_status}
+                        githubValidation={githubValidation}
+                    />
                 )}
 
                 <Tabs defaultValue="analysis" className="space-y-4">
@@ -605,11 +748,11 @@ const CandidateDetail = () => {
                     <TabsContent value="analysis">
                         <div className="grid gap-6 md:grid-cols-2">
                             {/* Skills & Experience */}
-                            <Card className="shadow-soft border-border">
-                                <CardHeader>
+                            <Card className="shadow-soft border-border hover:shadow-md transition-shadow">
+                                <CardHeader className="bg-muted/30 border-b pb-4">
                                     <CardTitle>Skills & Experience</CardTitle>
                                 </CardHeader>
-                                <CardContent className="space-y-4">
+                                <CardContent className="space-y-5 pt-6">
                                     <div>
                                         <h4 className="font-semibold mb-2">Experience</h4>
                                         <p className="text-muted-foreground">
@@ -636,110 +779,43 @@ const CandidateDetail = () => {
 
                             {/* Summary */}
                             {applicant.resume_analysis?.summary && (
-                                <Card className="shadow-soft border-border">
-                                    <CardHeader>
+                                <Card className="shadow-soft border-border hover:shadow-md transition-shadow">
+                                    <CardHeader className="bg-muted/30 border-b pb-4">
                                         <CardTitle>Summary</CardTitle>
                                     </CardHeader>
-                                    <CardContent>
-                                        <p className="text-muted-foreground">{applicant.resume_analysis.summary}</p>
+                                    <CardContent className="pt-6">
+                                        <p className="text-muted-foreground leading-relaxed">{applicant.resume_analysis.summary}</p>
                                     </CardContent>
                                 </Card>
                             )}
 
                             {/* Strengths */}
                             {applicant.resume_analysis?.strengths && applicant.resume_analysis.strengths.length > 0 ? (
-                                <Card className="shadow-soft border-border">
-                                    <CardHeader>
-                                        <CardTitle className="flex items-center gap-2">
-                                            <CheckCircle className="h-5 w-5 text-success" />
-                                            Strengths
-                                        </CardTitle>
-                                        <CardDescription>Key positive indicators from resume analysis</CardDescription>
-                                    </CardHeader>
-                                    <CardContent>
-                                        <ul className="space-y-3">
-                                            {applicant.resume_analysis.strengths.map((strength, i) => (
-                                                <li key={i} className="flex items-start gap-2">
-                                                    <CheckCircle className="h-4 w-4 text-success mt-0.5 flex-shrink-0" />
-                                                    <span className="text-muted-foreground">{strength}</span>
-                                                </li>
-                                            ))}
-                                        </ul>
-                                    </CardContent>
-                                </Card>
+                                <InsightCard
+                                    type="strength"
+                                    items={applicant.resume_analysis.strengths}
+                                />
                             ) : (
                                 applicant.resume_analysis && (
-                                    <Card className="shadow-soft border-border">
-                                        <CardHeader>
-                                            <CardTitle className="flex items-center gap-2">
-                                                <CheckCircle className="h-5 w-5 text-muted-foreground" />
-                                                Strengths
-                                            </CardTitle>
-                                        </CardHeader>
-                                        <CardContent>
-                                            <p className="text-muted-foreground text-sm italic">No notable strengths identified from this resume.</p>
-                                        </CardContent>
-                                    </Card>
+                                    <InsightCard type="strength" items={[]} />
                                 )
                             )}
 
                             {/* Weaknesses */}
                             {applicant.resume_analysis?.weaknesses && applicant.resume_analysis.weaknesses.length > 0 ? (
-                                <Card className="shadow-soft border-border">
-                                    <CardHeader>
-                                        <CardTitle className="flex items-center gap-2">
-                                            <AlertTriangle className="h-5 w-5 text-warning" />
-                                            Areas for Improvement
-                                        </CardTitle>
-                                        <CardDescription>Potential concerns or gaps identified</CardDescription>
-                                    </CardHeader>
-                                    <CardContent>
-                                        <ul className="space-y-3">
-                                            {applicant.resume_analysis.weaknesses.map((weakness, i) => (
-                                                <li key={i} className="flex items-start gap-2">
-                                                    <AlertTriangle className="h-4 w-4 text-warning mt-0.5 flex-shrink-0" />
-                                                    <span className="text-muted-foreground">{weakness}</span>
-                                                </li>
-                                            ))}
-                                        </ul>
-                                    </CardContent>
-                                </Card>
+                                <InsightCard
+                                    type="weakness"
+                                    items={applicant.resume_analysis.weaknesses}
+                                />
                             ) : (
                                 applicant.resume_analysis && (
-                                    <Card className="shadow-soft border-border">
-                                        <CardHeader>
-                                            <CardTitle className="flex items-center gap-2">
-                                                <AlertTriangle className="h-5 w-5 text-muted-foreground" />
-                                                Areas for Improvement
-                                            </CardTitle>
-                                        </CardHeader>
-                                        <CardContent>
-                                            <p className="text-muted-foreground text-sm italic">No specific areas for improvement identified.</p>
-                                        </CardContent>
-                                    </Card>
+                                    <InsightCard type="weakness" items={[]} />
                                 )
                             )}
 
                             {/* Recommendations */}
                             {applicant.resume_analysis?.recommendations && applicant.resume_analysis.recommendations.length > 0 && (
-                                <Card className="shadow-soft border-border md:col-span-2">
-                                    <CardHeader>
-                                        <CardTitle>Hiring Recommendations</CardTitle>
-                                        <CardDescription>AI-generated suggestions for next steps</CardDescription>
-                                    </CardHeader>
-                                    <CardContent>
-                                        <ol className="space-y-3">
-                                            {applicant.resume_analysis.recommendations.map((rec, i) => (
-                                                <li key={i} className="flex items-start gap-3">
-                                                    <span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary text-primary-foreground text-sm font-bold flex-shrink-0">
-                                                        {i + 1}
-                                                    </span>
-                                                    <span className="text-muted-foreground pt-0.5">{rec}</span>
-                                                </li>
-                                            ))}
-                                        </ol>
-                                    </CardContent>
-                                </Card>
+                                <RecommendationsCard items={applicant.resume_analysis.recommendations} />
                             )}
                         </div>
                     </TabsContent>
