@@ -162,10 +162,13 @@ serve(async (req) => {
 
     console.log("Analysis context:", JSON.stringify(analysisContext));
 
-    // Call Lovable AI for analysis
+    // Call AI for analysis (Lovable AI primary, DeepSeek fallback)
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-    if (!LOVABLE_API_KEY) {
-      throw new Error("LOVABLE_API_KEY not configured");
+    const DEEPSEEK_API_KEY = Deno.env.get("DEEPSEEK_API_KEY");
+    // USE_DEEPSEEK flag: when "true", DeepSeek is used as primary; otherwise it's only a fallback
+    const USE_DEEPSEEK = (Deno.env.get("USE_DEEPSEEK") || "").toLowerCase() === "true";
+    if (!LOVABLE_API_KEY && !DEEPSEEK_API_KEY) {
+      throw new Error("No AI provider configured (LOVABLE_API_KEY or DEEPSEEK_API_KEY)");
     }
 
     // Sort and select top repositories for analysis
