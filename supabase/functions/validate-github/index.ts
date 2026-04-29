@@ -250,36 +250,58 @@ Respond in JSON format:
   "summary": "<string>"
 }`;
 
-    // Call Lovable AI Gateway for analysis
-    const aiResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${LOVABLE_API_KEY}`,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        model: "google/gemini-2.5-flash",
-        messages: [
-          {
-            role: "system",
-            content: "You are a technical recruiter expert at analyzing GitHub profiles for authenticity. Always respond with valid JSON."
-          },
-          {
-            role: "user",
-            content: aiPrompt
-          }
-        ],
-        temperature: 0.7
-      })
-    });
+    // Helper to call a single AI provider
+    async function callProvider(provider: "lovable" | "deepseek") {
+      const isLovable = provider === "lovable";
+      const url = isLovable
+        ? "https://ai.gateway.lovable.dev/v1/chat/completions"
+        : "https://api.deepseek.com/v1/chat/completions";
+      const apiKey = isLovable ? LOVABLE_API_KEY : DEEPSEEK_API_KEY;
+      const model = isLovable ? "google/gemini-2.5-flash" : "deepseek-chat";
 
-    if (!aiResponse.ok) {
-      const errorText = await aiResponse.text();
-      console.error("AI API error:", aiResponse.status, errorText);
-      throw new Error(`AI analysis failed: ${aiResponse.status}`);
+      const res = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${apiKey}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          model,
+          messages: [
+            {
+              role: "system",
+              content: "You are a technical recruiter expert at analyzing GitHub profiles for authenticity. Always respond with valid JSON."
+            },
+            { role: "user", content: aiPrompt }
+          ],
+          temperature: 0.7
+        })
+      });
+
+      if (!res.ok) {
+        const errorText = await res.text();
+        throw new Error(`${provider} AI error: ${res.status} ${errorText}`);
+      }
+      return await res.json();
     }
 
-    const aiData = await aiResponse.json();
+    // Pick primary based on USE_DEEPSEEK flag, fall back to the other on failure
+    const primary: "lovable" | "deepseek" =
+      USE_DEEPSEEK && DEEPSEEK_API_KEY ? "deepseek" : (LOVABLE_API_KEY ? "lovable" : "deepseek");
+    const fallback: "lovable" | "deepseek" = primary === "lovable" ? "deepseek" : "lovable";
+    const fallbackKey = fallback === "lovable" ? LOVABLE_API_KEY : DEEPSEEK_API_KEY;
+
+    let aiData;
+    try {
+      console.log(`Calling primary AI provider: ${primary}`);
+      aiData = await callProvider(primary);
+    } catch (err) {
+      console.error(`Primary provider (${primary}) failed:`, err);
+      if (!fallbackKey) throw err;
+      console.log(`Falling back to ${fallback}...`);
+      aiData = await callProvider(fallback);
+    }
+
     const aiContent = aiData.choices?.[0]?.message?.content;
     
     if (!aiContent) {
