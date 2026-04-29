@@ -102,16 +102,23 @@ serve(async (req) => {
       ? `\nJob Requirements:\n${jobRequirements.map((r: string) => `- ${r}`).join("\n")}`
       : "";
 
-    // Helper to call AI API
-    async function callAI(systemMsg: string, userMsg: string) {
-      const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+    // Helper to call AI API with DeepSeek fallback
+    async function callProvider(provider: "lovable" | "deepseek", systemMsg: string, userMsg: string) {
+      const isLovable = provider === "lovable";
+      const url = isLovable
+        ? "https://ai.gateway.lovable.dev/v1/chat/completions"
+        : "https://api.deepseek.com/v1/chat/completions";
+      const apiKey = isLovable ? LOVABLE_API_KEY : DEEPSEEK_API_KEY;
+      const model = isLovable ? "google/gemini-2.5-flash" : "deepseek-chat";
+
+      const response = await fetch(url, {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${LOVABLE_API_KEY}`,
+          Authorization: `Bearer ${apiKey}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          model: "google/gemini-2.5-flash",
+          model,
           messages: [
             { role: "system", content: systemMsg },
             { role: "user", content: userMsg },
@@ -124,19 +131,35 @@ serve(async (req) => {
         if (response.status === 429) throw new Error("Rate limit exceeded. Please try again later.");
         if (response.status === 402) throw new Error("AI credits exhausted. Please add credits to continue.");
         const errText = await response.text();
-        throw new Error(`AI Gateway error: ${response.status} ${errText}`);
+        throw new Error(`${provider} AI error: ${response.status} ${errText}`);
       }
 
       const data = await response.json();
       const content = data.choices?.[0]?.message?.content;
       if (!content) throw new Error("No analysis generated");
 
-      // Extract JSON from markdown code blocks if present
       const jsonMatch = content.match(/```json\n?([\s\S]*?)\n?```/) ||
         content.match(/```\n?([\s\S]*?)\n?```/) ||
         [null, content];
       const jsonStr = jsonMatch[1] || content;
       return JSON.parse(jsonStr.trim());
+    }
+
+    async function callAI(systemMsg: string, userMsg: string) {
+      // Determine primary provider based on USE_DEEPSEEK flag and key availability
+      const primary: "lovable" | "deepseek" =
+        USE_DEEPSEEK && DEEPSEEK_API_KEY ? "deepseek" : (LOVABLE_API_KEY ? "lovable" : "deepseek");
+      const fallback: "lovable" | "deepseek" = primary === "lovable" ? "deepseek" : "lovable";
+      const fallbackKey = fallback === "lovable" ? LOVABLE_API_KEY : DEEPSEEK_API_KEY;
+
+      try {
+        return await callProvider(primary, systemMsg, userMsg);
+      } catch (err) {
+        console.error(`Primary provider (${primary}) failed:`, err);
+        if (!fallbackKey) throw err;
+        console.log(`Falling back to ${fallback}...`);
+        return await callProvider(fallback, systemMsg, userMsg);
+      }
     }
 
     // 1. General Analysis Prompt
