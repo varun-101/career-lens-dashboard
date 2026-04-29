@@ -85,8 +85,12 @@ serve(async (req) => {
 
     // Validate environment configuration
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-    if (!LOVABLE_API_KEY) {
-      console.error("LOVABLE_API_KEY is not configured");
+    const DEEPSEEK_API_KEY = Deno.env.get("DEEPSEEK_API_KEY");
+    // USE_DEEPSEEK flag: when "true", DeepSeek is used as primary; otherwise it's only a fallback
+    const USE_DEEPSEEK = (Deno.env.get("USE_DEEPSEEK") || "").toLowerCase() === "true";
+
+    if (!LOVABLE_API_KEY && !DEEPSEEK_API_KEY) {
+      console.error("Neither LOVABLE_API_KEY nor DEEPSEEK_API_KEY is configured");
       return new Response(
         JSON.stringify({ error: "AI service not configured" }),
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
